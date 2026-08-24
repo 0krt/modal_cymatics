@@ -1,0 +1,3182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CHLADNI // MODAL</title>
+<style>
+  :root {
+    --control-border: #5c606d;   /* 3.03:1 on panel - WCAG 1.4.11 */
+    --focus: var(--accent);
+
+    --bg: #0a0b0e;
+    --panel: rgba(16, 18, 23, 0.88);
+    --line: rgba(255, 255, 255, 0.08);
+    --line-strong: rgba(255, 255, 255, 0.16);
+    --ink: #d6dae2;
+    --ink-dim: #828999;
+    --accent: #e8c26a;
+    --accent-dim: rgba(232, 194, 106, 0.35);
+    --mod: #7fb2ff;                          /* modulation, so it never reads as drive */
+    --mod-dim: rgba(127, 178, 255, 0.35);
+    --danger: #ff5d6c;
+    --danger-dim: rgba(255, 93, 108, 0.4);
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; background: var(--bg); }
+  body { font-family: var(--mono); color: var(--ink); font-size: 12px; }
+
+  #canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; cursor: crosshair; }
+
+  #header {
+    position: fixed; top: 0; left: 0; padding: 18px 22px;
+    pointer-events: none; user-select: none; z-index: 5;
+  }
+  /* the field runs full-bleed here, so the chrome needs its own contrast */
+  #header, #status { text-shadow: 0 1px 4px rgba(0, 0, 0, 0.95), 0 0 14px rgba(0, 0, 0, 0.8); }
+  #header h1 { font-size: 13px; font-weight: 600; letter-spacing: 0.35em; color: var(--ink); }
+  #header h1 em { font-style: normal; color: var(--accent); }
+  #header .sub {
+    margin-top: 5px; font-size: 10px; letter-spacing: 0.22em;
+    color: var(--ink-dim); text-transform: uppercase;
+  }
+
+  #status {
+    position: fixed; bottom: 0; left: 0; padding: 14px 22px;
+    font-size: 10px; letter-spacing: 0.14em; color: var(--ink-dim);
+    pointer-events: none; user-select: none; z-index: 5; text-transform: uppercase;
+  }
+  #status .k { color: var(--ink); }
+  #status .paused { color: var(--danger); }
+
+  #recbadge {
+    position: fixed; top: 18px; left: 50%; transform: translateX(-50%);
+    display: none; align-items: center; gap: 8px; z-index: 6;
+    background: var(--panel); border: 1px solid var(--line-strong);
+    padding: 7px 14px; border-radius: 3px; letter-spacing: 0.18em; font-size: 10px;
+  }
+  #recbadge.on { display: flex; }
+  #recbadge .dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--danger);
+    animation: blink 1.1s steps(2, start) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0.25; } }
+
+  #panel {
+    position: fixed; top: 0; right: 0; bottom: 0; width: 292px; z-index: 10;
+    background: var(--panel); backdrop-filter: blur(14px);
+    border-left: 1px solid var(--line);
+    overflow-y: auto; overscroll-behavior: contain;
+    transition: transform 0.25s ease;
+  }
+  #panel.hidden { transform: translateX(100%); }
+  #panel::-webkit-scrollbar { width: 4px; }
+  #panel::-webkit-scrollbar-thumb { background: var(--line-strong); }
+
+  #paneltoggle {
+    position: fixed; top: 14px; right: 306px; z-index: 11;
+    background: var(--panel); border: 1px solid var(--line-strong); color: var(--ink-dim);
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.2em;
+    padding: 6px 10px; cursor: pointer; border-radius: 3px; transition: right 0.25s ease;
+  }
+  body.panel-hidden #paneltoggle { right: 16px; }
+  #paneltoggle:hover { color: var(--accent); border-color: var(--accent-dim); }
+
+  .section { border-bottom: 1px solid var(--line); padding: 16px 18px 18px; }
+  .section h2 {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 9px; font-weight: 600; letter-spacing: 0.3em; text-transform: uppercase;
+    color: var(--ink-dim); margin-bottom: 14px;
+  }
+  .section h2 .tag { margin-left: auto; color: var(--accent); letter-spacing: 0.1em; }
+  .infobtn {
+    flex: none; width: 15px; height: 15px; padding: 0; line-height: 1;
+    font-family: var(--mono); font-size: 9px; letter-spacing: 0;
+    color: var(--ink-dim); background: transparent;
+    border: 1px solid var(--line-strong); border-radius: 50%; cursor: pointer;
+  }
+  .infobtn:hover { color: var(--accent); border-color: var(--accent-dim); }
+  .infobtn.open { color: var(--bg); background: var(--accent); border-color: var(--accent); }
+
+  /* collapsible section bodies */
+  .section.fold h2 { cursor: pointer; margin-bottom: 0; }
+  .section.fold h2::after {
+    content: '−'; margin-left: 4px; color: var(--ink-dim); font-size: 11px;
+  }
+  .section.fold.collapsed h2::after { content: '+'; }
+  .section.fold .foldbody { margin-top: 14px; }
+  .section.fold.collapsed .foldbody { display: none; }
+
+  .param { margin-bottom: 12px; }
+  .param.disabled { opacity: 0.3; pointer-events: none; }
+  .param .row1 { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 5px; }
+  .param label { font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink); }
+  .param .val { font-size: 10px; color: var(--accent); letter-spacing: 0.05em; }
+  .param .row2 { display: flex; align-items: center; gap: 8px; }
+
+  input[type="range"] {
+    flex: 1; -webkit-appearance: none; appearance: none; height: 18px; background: transparent; cursor: ew-resize;
+  }
+  input[type="range"]::-webkit-slider-runnable-track { height: 2px; background: var(--line-strong); }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; width: 9px; height: 9px; margin-top: -3.5px;
+    background: var(--accent); border-radius: 50%;
+  }
+  input[type="range"]::-moz-range-track { height: 2px; background: var(--line-strong); }
+  input[type="range"]::-moz-range-thumb {
+    width: 9px; height: 9px; background: var(--accent); border: none; border-radius: 50%;
+  }
+
+  /* ---------- midi cc mapping ---------- */
+  .midi-head { display: flex; align-items: center; gap: 7px; margin-bottom: 8px; }
+  .midi-dot {
+    width: 7px; height: 7px; border-radius: 50%; flex: none;
+    background: var(--line-strong); transition: background 0.15s;
+  }
+  .midi-dot.connected { background: var(--accent); }
+  .midi-dot.active { background: #fff; }
+  .midi-dot.error { background: var(--danger); }
+  .midi-head span { font-size: 9.5px; letter-spacing: 0.08em; color: var(--ink-dim); }
+
+  #midi-monitor {
+    font-size: 9px; letter-spacing: 0.08em; color: var(--ink-dim);
+    padding: 5px 7px; margin-bottom: 10px; border-radius: 2px;
+    background: rgba(255, 255, 255, 0.03); border-left: 2px solid var(--line-strong);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #midi-monitor b { color: var(--accent); font-weight: 400; }
+
+  .map-row {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 5px;
+    padding: 7px 8px; margin-bottom: 6px; border-radius: 3px;
+    background: rgba(255, 255, 255, 0.025); border-left: 2px solid var(--line-strong);
+  }
+  .map-row.learning { border-left-color: var(--accent); }
+  .map-target {
+    flex: 1 1 100%; margin-bottom: 0;
+    font-size: 10px; padding: 3px 6px; color: var(--accent);
+  }
+  .map-cc-btn {
+    font-family: var(--mono); font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--ink-dim); background: transparent; border: 1px solid var(--line-strong);
+    border-radius: 2px; padding: 3px 7px; cursor: pointer; white-space: nowrap;
+  }
+  .map-cc-btn:hover { color: var(--ink); border-color: var(--ink-dim); }
+  .map-cc-btn.bound { color: var(--accent); border-color: var(--accent-dim); }
+  .map-cc-btn.learning {
+    color: var(--bg); background: var(--accent); border-color: var(--accent);
+    animation: blink 0.8s steps(2, start) infinite;
+  }
+  .map-range { display: flex; align-items: center; gap: 3px; font-size: 9px; color: var(--ink-dim); }
+  .map-range input {
+    width: 44px; background: #0d0f13; border: 1px solid var(--line-strong); color: var(--ink);
+    font-family: var(--mono); font-size: 9px; padding: 2px 4px; border-radius: 2px; text-align: right;
+  }
+  .map-range input:focus:not(:focus-visible) { outline: none; border-color: var(--accent-dim); }
+  .map-del {
+    margin-left: auto; font-family: var(--mono); font-size: 11px; line-height: 1;
+    color: var(--ink-dim); background: transparent; border: none; cursor: pointer; padding: 2px 4px;
+  }
+  .map-del:hover { color: var(--danger); }
+  .map-ind { width: 5px; height: 5px; border-radius: 50%; background: var(--line-strong); flex: none; }
+  .map-ind.active { background: var(--accent); }
+  #map-add {
+    width: 100%; font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--ink-dim); background: transparent;
+    border: 1px dashed var(--line-strong); border-radius: 3px; padding: 7px; cursor: pointer;
+  }
+  #map-add:hover { color: var(--accent); border-color: var(--accent-dim); }
+
+  .btnrow { display: flex; gap: 6px; flex-wrap: wrap; }
+  button.act {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--ink); background: transparent; border: 1px solid var(--line-strong);
+    border-radius: 3px; padding: 7px 10px; cursor: pointer; flex: 1; min-width: 70px;
+  }
+  button.act:hover { border-color: var(--accent-dim); color: var(--accent); }
+  button.act.primary { border-color: var(--accent-dim); color: var(--accent); }
+  button.act.armed { border-color: var(--danger); color: var(--danger); }
+
+  .toolrow { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+  button.tool {
+    flex: 1; min-width: 50px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--ink-dim); background: transparent;
+    border: 1px solid var(--line-strong); border-radius: 3px; padding: 7px 4px; cursor: pointer;
+  }
+  button.tool:hover { color: var(--ink); }
+  button.tool.active { color: var(--accent); border-color: var(--accent-dim); }
+
+  select {
+    width: 100%; font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em;
+    color: var(--ink); background: #0d0f13; border: 1px solid var(--line-strong);
+    border-radius: 3px; padding: 6px 8px; cursor: pointer; margin-bottom: 10px;
+  }
+  select:focus:not(:focus-visible) { outline: none; border-color: var(--accent-dim); }
+  .sublabel { font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink-dim); margin: 2px 0 5px; }
+
+  .colorrow { display: flex; gap: 6px; margin-bottom: 12px; }
+  .colorrow label {
+    flex: 1; display: flex; flex-direction: column; gap: 4px; align-items: stretch;
+    font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-dim);
+  }
+  .colorrow input[type="color"] {
+    -webkit-appearance: none; appearance: none; width: 100%; height: 20px; padding: 0;
+    background: transparent; border: 1px solid var(--line-strong); border-radius: 3px; cursor: pointer;
+  }
+  .colorrow input[type="color"]::-webkit-color-swatch-wrapper { padding: 2px; }
+  .colorrow input[type="color"]::-webkit-color-swatch { border: none; border-radius: 2px; }
+  .colorrow input[type="color"]::-moz-color-swatch { border: none; border-radius: 2px; }
+
+  /* info text is folded away behind the (i) button in each section header */
+  .hint {
+    display: none; font-size: 9.5px; line-height: 1.7; color: var(--ink-dim); letter-spacing: 0.04em;
+    margin-top: 10px; padding: 9px 10px; border-radius: 3px;
+    background: rgba(255, 255, 255, 0.03); border-left: 2px solid var(--accent-dim);
+  }
+  .hint.open { display: block; }
+  .hint b { color: var(--ink); font-weight: 400; }
+  .hint code {
+    font-family: var(--mono); color: var(--ink); background: rgba(255, 255, 255, 0.06);
+    padding: 0 3px; border-radius: 2px;
+  }
+
+  /* modal spectrum readout */
+  #spectrum { width: 100%; height: 64px; display: block; margin-bottom: 8px; }
+  #modelist {
+    font-size: 9.5px; line-height: 1.75; color: var(--ink-dim); letter-spacing: 0.06em;
+    max-height: 190px; overflow-y: auto; overflow-x: hidden;
+  }
+  #modelist .hot { color: var(--accent); }
+  #modelist::-webkit-scrollbar { width: 3px; }
+  #modelist::-webkit-scrollbar-thumb { background: var(--line-strong); }
+
+  #err {
+    position: fixed; inset: 0; display: none; z-index: 100;
+    background: var(--bg); color: var(--ink); padding: 40px; font-size: 13px; line-height: 2;
+  }
+
+  /* two-column tool rows — "supported" and "powder → anti" overrun a
+     four-across flex row inside a 292px panel */
+  .toolrow.grid2 { display: grid; grid-template-columns: repeat(2, 1fr); }
+  .toolrow.grid2 button.tool { width: 100%; min-width: 0; letter-spacing: 0.06em; padding: 7px 6px; }
+
+  /* a value being driven by an lfo reads in the modulation colour */
+  .param .val.modulated { color: var(--mod); }
+
+  /* mode rows are tuning targets, not just a readout */
+  button.moderow {
+    display: block; width: 100%; text-align: left; white-space: nowrap;
+    font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.05em;
+    color: var(--ink-dim); background: transparent; border: none; border-radius: 2px;
+    padding: 2px 3px; cursor: pointer;
+  }
+  button.moderow:hover { color: var(--ink); background: rgba(255, 255, 255, 0.06); }
+  button.moderow.hot { color: var(--accent); }
+  button.moderow .hz { color: var(--ink-dim); }
+
+  .swatchrow { display: flex; gap: 6px; margin-bottom: 10px; }
+  .swatch {
+    flex: 1; height: 20px; border: 1px solid var(--line-strong); border-radius: 3px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 8px; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(0, 0, 0, 0.55);
+  }
+
+  #units-out {
+    font-size: 9px; letter-spacing: 0.06em; color: var(--ink-dim);
+    padding: 5px 7px; margin-bottom: 10px; border-radius: 2px;
+    background: rgba(255, 255, 255, 0.03); border-left: 2px solid var(--line-strong);
+  }
+  #units-out b { color: var(--accent); font-weight: 400; }
+
+  /* ---------- lfo ---------- */
+  .lfo {
+    padding: 9px 10px; margin-bottom: 8px; border-radius: 3px;
+    background: rgba(255, 255, 255, 0.025); border-left: 2px solid var(--mod-dim);
+  }
+  .lfo-head { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
+  .lfo-num { font-size: 9px; letter-spacing: 0.24em; color: var(--mod); }
+  .lfo-meter { flex: 1; height: 3px; background: var(--line-strong); border-radius: 2px; position: relative; }
+  .lfo-meter i { position: absolute; top: -1px; height: 5px; width: 3px; background: var(--mod); border-radius: 2px; }
+  .lfo-run {
+    font-family: var(--mono); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--ink-dim); background: transparent; border: 1px solid var(--line-strong);
+    border-radius: 2px; padding: 3px 7px; cursor: pointer;
+  }
+  .lfo-run.active { color: var(--mod); border-color: var(--mod-dim); }
+  .lfo-wave { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-bottom: 10px; }
+  .lfo-wave button {
+    font-family: var(--mono); font-size: 9px; letter-spacing: 0.04em; text-transform: uppercase;
+    color: var(--ink-dim); background: transparent; border: 1px solid var(--line-strong);
+    border-radius: 2px; padding: 4px 2px; cursor: pointer;
+  }
+  .lfo-wave button:hover { color: var(--ink); }
+  .lfo-wave button.active { color: var(--mod); border-color: var(--mod-dim); }
+  .lfo .param { margin-bottom: 9px; }
+  .lfo .param .val { color: var(--mod); }
+  .lfo input[type="range"]::-webkit-slider-thumb { background: var(--mod); }
+  .lfo input[type="range"]::-moz-range-thumb { background: var(--mod); }
+  .lfo-assign { display: flex; align-items: center; gap: 5px; margin-bottom: 5px; }
+  .lfo-assign select { flex: 1 1 auto; width: auto; min-width: 0; margin: 0; font-size: 10px; padding: 3px 5px; }
+  .lfo-assign input[type=number] {
+    width: 48px; background: #0d0f13; border: 1px solid var(--line-strong); color: var(--ink);
+    font-family: var(--mono); font-size: 9px; padding: 2px 4px; border-radius: 2px; text-align: right;
+  }
+  .lfo-add {
+    width: 100%; font-family: var(--mono); font-size: 9px; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--ink-dim); background: transparent;
+    border: 1px dashed var(--line-strong); border-radius: 3px; padding: 5px; cursor: pointer;
+  }
+  .lfo-add:hover { color: var(--mod); border-color: var(--mod-dim); }
+
+  /* ==================================================================
+     accessibility layer  -  WCAG 2.2 AA
+     ------------------------------------------------------------------
+     focus rings, reduced motion, and a screen-reader-only utility.
+     colours come from the artefact's own palette, so nothing here
+     changes how the piece looks until you tab into it.
+     ================================================================== */
+
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+  /* several base rules zero the ring out; win them back on equal ground */
+  button:focus-visible,
+  select:focus-visible,
+  input:focus-visible,
+  textarea:focus-visible,
+  a:focus-visible,
+  [tabindex]:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+  input[type=range]:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 4px;
+  }
+
+  /* 1.4.11 - the boundary of an interactive control must clear 3:1 */
+  button, select, textarea,
+  input[type=text], input[type=number], input[type=search], input[type=range] {
+    border-color: var(--control-border);
+  }
+
+  /* 2.3.3 - honour a reduced-motion preference for all chrome animation */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+
+  /* --- 2.5.8 Target Size (Minimum) - 24x24 CSS px per pointer target ---
+     Labels are associated with their controls, so a checkbox and its text
+     act as one target and are measured together. */
+  button, select,
+  input[type=color], input[type=number], input[type=text], input[type=search] {
+    min-height: 24px;
+  }
+  button { min-width: 24px; }
+  input[type="range"] { min-height: 24px; }
+
+  /* checkbox rows: give the clickable band its full 24px height */
+  .checkbox-row { min-height: 24px; }
+  .checkbox-row label, .lfo-targets label { display: flex; align-items: center; min-height: 24px; }
+  input[type=checkbox], input[type=radio] { min-width: 16px; min-height: 16px; }
+
+  .sr-only {
+    position: absolute; width: 1px; height: 1px;
+    padding: 0; margin: -1px; overflow: hidden;
+    clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+
+</style>
+</head>
+<body>
+<canvas role="img" aria-label="Chladni figure: sand settling along the nodal lines of a vibrating plate." id="canvas"></canvas>
+
+<div id="header">
+  <h1>CHLADNI<em>&nbsp;//&nbsp;</em>MODAL</h1>
+  <div class="sub" id="subtitle">kirchhoff plate · modal superposition</div>
+</div>
+
+<div id="recbadge"><span class="dot"></span><span id="rectime">REC 00:00</span></div>
+<div id="status"></div>
+<button id="paneltoggle" aria-label="Show or hide the controls panel" aria-expanded="true" aria-controls="panel">☰</button>
+
+<div id="panel">
+  <div class="section fold collapsed" id="sec-about">
+    <h2>About <span class="tag">read me</span></h2>
+    <div class="foldbody">
+      <div class="hint open" style="margin-top:0">
+        <b>What is this?</b><br>
+        A Chladni plate is a flat sheet of metal with sand on it. Vibrate it at the right pitch and
+        the sand stops being a mess and snaps into a sharp geometric pattern. Ernst Chladni was doing
+        this in 1787; Napoleon watched it and put up prize money.<br><br>
+
+        <b>Why does the sand move?</b><br>
+        A vibrating plate does not go up and down all in one piece. Parts of it swing hard while other
+        parts barely move at all. The still lines are called <b>nodes</b>. Sand sitting on a violently
+        shaking part gets thrown around until it happens to land somewhere still — and then it stays.
+        So the sand is not drawing the vibration. It is drawing the places where there <i>is</i> no
+        vibration. Fine powder does the opposite: it is light enough for the moving air to carry, so it
+        piles up at the loudest spots instead.<br><br>
+
+        <b>What is a mode?</b><br>
+        A plate cannot vibrate in just any shape. Like a guitar string that will only give you its
+        fundamental and its overtones, a plate has a fixed catalogue of standing patterns it is willing
+        to hold — its <b>modes</b>. Each one has its own pitch. Play that pitch and that pattern
+        appears; play something in between and you mostly get mud. That is why sweeping a tone
+        generator across a plate is so dramatic: nothing, nothing, nothing — then suddenly a perfect
+        star.<br><br>
+
+        <b>What decides the pitches?</b><br>
+        <b>Size</b> — bigger plates are lower, and steeply so: double the width and every pitch drops
+        by a factor of four.<br>
+        <b>Stiffness and thickness</b> — a thicker or stiffer plate is higher. Steel sings higher than
+        aluminium of the same size.<br>
+        <b>Shape and how it is held</b> — a square, a circle and a triangle have completely different
+        catalogues. Clamping the rim rather than letting it flap raises every pitch and changes every
+        pattern.<br><br>
+
+        <b>What makes the patterns intricate?</b><br>
+        Sometimes two entirely different modes happen to share the same pitch — <b>degenerate</b>
+        modes. They both wake up at once and add together, and where you touch the plate to drive it
+        decides how they blend, so one frequency can give a whole family of figures. A driver sitting
+        exactly on a mode's node cannot wake it at all — which is why moving the drive point makes
+        half the catalogue vanish.
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Plate <span class="tag" id="plate-tag"></span><button class="infobtn" data-info="i-plate">i</button></h2>
+    <select aria-label="Plate geometry" id="geom">
+      <option value="rect">rectangle</option>
+      <option value="disc" selected>disc</option>
+      <option value="ring">ring / annulus</option>
+      <option value="tri">equilateral triangle</option>
+    </select>
+    <div class="sublabel">edge condition</div>
+    <div class="toolrow grid2">
+      <button class="tool" data-edge="free">free</button>
+      <button class="tool active" data-edge="supported">supported</button>
+      <button class="tool" data-edge="clamped">clamped</button>
+      <button class="tool" data-edge="mixed">mixed c–f</button>
+    </div>
+    <div id="params-plate"></div>
+    <div class="sublabel">dispersion</div>
+    <div class="toolrow">
+      <button class="tool active" data-disp="plate">plate ω∝k²</button>
+      <button class="tool" data-disp="membrane">membrane ω∝k</button>
+    </div>
+    <div class="sublabel">real units</div>
+    <select aria-label="Plate material" id="material">
+      <option value="steel" selected>steel</option>
+      <option value="alu">aluminium</option>
+      <option value="brass">brass</option>
+      <option value="glass">glass</option>
+    </select>
+    <div id="params-units"></div>
+    <div id="units-out"></div>
+    <div class="hint" id="i-plate">
+      a real plate is fourth-order (biharmonic), so doubling the frequency scales the wavenumber by
+      <b>√2</b>, not 2. the membrane setting is the ordinary wave equation for comparison.<br><br>
+      <b>free</b> — rim moves freely, the classic loose Chladni plate.<br>
+      <b>supported</b> — rim pinned to zero but free to tilt.<br>
+      <b>clamped</b> — rim pinned <i>and</i> held flat (w = w′ = 0). the stiffest case, so every mode
+      sits higher, and a boundary layer forms at the rim.<br>
+      <b>mixed c–f</b> — clamped along x, free along y: a rectangular plate held on two opposite
+      edges only.<br><br>
+      the rectangle uses <b>beam eigenfunctions</b> per axis (the Ritz construction); the disc uses
+      Bessel modes, with the clamped case needing the modified-Bessel companion. the <b>ring</b> is
+      supported on both rims, and the <b>equilateral triangle</b> uses the exact Lamé modes built by
+      reflecting six plane waves — both are only defined for the supported case here.<br><br>
+      <b>real units</b> converts the abstract frequency scale into hertz for an actual sheet:
+      <code>f = π F h c<sub>p</sub> / (2 L² √12)</code>, with <code>c<sub>p</sub> = √(E / ρ(1−ν²))</code>.
+      the fourth-power in <b>L</b> is the whole story of plate tuning — double the size and every
+      pitch drops two octaves. thickness scales it linearly the other way.
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Drive <span class="tag" id="drive-tag"></span><button class="infobtn" data-info="i-drive">i</button></h2>
+    <select aria-label="Excitation waveform" id="wave">
+      <option value="sine" selected>sine — single partial</option>
+      <option value="square">square — odd, 1/n</option>
+      <option value="saw">saw — all, 1/n</option>
+    </select>
+    <div id="params-drive"></div>
+    <div class="toolrow">
+      <button class="tool" id="btn-snap">snap to resonance</button>
+    </div>
+    <canvas role="img" aria-label="Frequency spectrum of the plate's modal response." id="spectrum"></canvas>
+    <div class="hint" id="i-drive">
+      the plate is a <b>linear filter</b>: waveform only matters as harmonic content. each partial
+      excites whatever modes it lands near. relative partial <b>phase</b> cannot move the sand —
+      only the amplitude spectrum can.<br><br>
+      <b>partial focus</b> is a bandpass across the harmonic series. at <code>off</code> the whole
+      spectrum drives the plate; sweep it up and it isolates one partial at a time, so you can hear
+      and see a single harmonic pull its own set of modes. <b>focus width</b> is how many neighbouring
+      partials come with it — narrow it to about 0.2 for a clean solo.<br><br>
+      controls grey out when the waveform does not use them: a sine already has one partial.<br><br>
+      <b>snap to resonance</b> quantises the drive to the nearest eigenfrequency of the current plate,
+      so a sweep lands on figures instead of passing between them. the slider still moves freely — only
+      the value it reports is snapped. the scroll wheel then steps mode by mode.
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Excitation point <span class="tag"></span><button class="infobtn" data-info="i-pt">i</button></h2>
+    <div id="params-drivept"></div>
+    <div class="btnrow">
+      <button class="act" id="btn-clearfingers">clear fingers <span id="finger-tag"></span></button>
+    </div>
+    <div class="hint" id="i-pt">
+      a driver sitting <b>on</b> a mode's nodal line cannot excite it at all. drag on the plate to move
+      the driver and watch half the catalogue vanish. corner drive couples to everything.<br><br>
+      <b>shift-click</b> the plate to pin a damping finger (up to four; shift-click one again to lift
+      it). a finger only damps the modes that actually move underneath it — park one on a nodal line
+      and that mode rings on untouched, which is exactly how you pick a single figure out of a
+      degenerate pair by hand.
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Grains <span class="tag" id="grain-tag"></span><button class="infobtn" data-info="i-grain">i</button></h2>
+    <div class="toolrow grid2">
+      <button class="tool active" data-med="sand">sand → nodes</button>
+      <button class="tool" data-med="powder">powder → anti</button>
+      <button class="tool" data-med="both">both at once</button>
+    </div>
+    <div id="params-grain"></div>
+    <div class="btnrow">
+      <button class="act" id="btn-reseed">scatter grains</button>
+    </div>
+    <div class="hint" id="i-grain">
+      coarse sand collects at <b>nodes</b>. very fine powder does the opposite — acoustic streaming in
+      the air carries it to the <b>antinodes</b>. <b>both at once</b> runs two populations in two
+      colours, so the nodal and antinodal figures appear together; <b>fine fraction</b> is the split.<br><br>
+      <b>feed rate</b> continuously recycles grains back onto the plate, oldest first, as if you were
+      sprinkling steadily while it runs. at zero the population is static.<br><br>
+      <b>hop threshold</b> is the local amplitude a grain needs before it will move at all — real sand
+      only migrates once the plate's acceleration beats gravity. <b>jitter</b> is random bouncing,
+      scaled by the local amplitude, so it competes with the crawl and fuzzes the lines.
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Rendering <span class="tag"></span><button class="infobtn" data-info="i-render">i</button></h2>
+    <div class="sublabel">field</div>
+    <div class="toolrow" id="fieldmode">
+      <button class="tool active" data-field="0">off</button>
+      <button class="tool" data-field="1">motion</button>
+      <button class="tool" data-field="2">rms</button>
+    </div>
+    <select aria-label="Colour palette" id="palette">
+      <option value="0" selected>brass</option>
+      <option value="1">ice</option>
+      <option value="2">ember</option>
+      <option value="3">mono</option>
+    </select>
+    <div class="toolrow">
+      <button class="tool active" id="btn-grains">grains</button>
+      <button class="tool active" id="btn-driver">driver dot</button>
+    </div>
+    <div class="sublabel">colours</div>
+    <div class="colorrow">
+      <label for="col-canvas">canvas<input type="color" id="col-canvas" value="#0a0b0e"></label>
+    </div>
+    <div class="swatchrow">
+      <div class="swatch" id="sw-coarse">coarse</div>
+      <div class="swatch" id="sw-fine">fine</div>
+    </div>
+    <div id="params-graincol"></div>
+    <div class="sublabel">motion</div>
+    <div id="params-render"></div>
+    <div class="hint" id="i-render">
+      <b>motion</b> is the live plate oscillation — the real drive is far too fast to see, so this
+      slows it down. it does not affect where the grains settle.<br><br>
+      <b>field</b>: <code>motion</code> shows instantaneous displacement, <code>rms</code> shows the
+      time-averaged amplitude the grains actually respond to.<br><br>
+      <b>canvas</b> is the ground behind the plate, and it fills the letterbox surround too, so a
+      framed export lands on one flat colour. the grain colours are ordinary parameters — hue,
+      saturation and lightness — so a controller or an lfo can drive them. the <b>fine hue</b> only
+      shows in <code>both at once</code>. the <b>driver dot</b> marks the excitation point — switch it
+      off for a clean capture.
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Audio <span class="tag" id="audio-tag"></span><button class="infobtn" data-info="i-audio">i</button></h2>
+    <div class="toolrow grid2">
+      <button class="tool" id="btn-audio">output off</button>
+      <button class="tool" id="btn-realhz">real hz</button>
+    </div>
+    <div id="params-audio"></div>
+    <div class="hint" id="i-audio">
+      synthesises the actual drive signal — the same partial amplitudes and phases that are feeding
+      the plate, as a <b>periodic wave</b>. changing waveform, partial count, tilt or pulse width
+      changes what you hear and what the plate does, together.<br><br>
+      <b>pitch per unit</b> sets the audible hertz for one unit of modal frequency, since the
+      frequency slider is in plate units, not hertz. at 8 Hz/unit a drive of f 25 sounds at 200 Hz.<br><br>
+      <b>real hz</b> ignores that slider and plays the frequency the plate would actually sound at,
+      from the size, thickness and material set under <b>Plate</b> — you hear the sheet you drew.
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Modes <span class="tag" id="mode-tag"></span><button class="infobtn" data-info="i-modes">i</button></h2>
+    <div id="modelist"></div>
+    <div class="hint" id="i-modes">
+      the modes the current drive is actually exciting, strongest first.<br><br>
+      <b>rectangle — (m,n)</b>: the number of half-wave divisions along each axis. (3,2)
+      has three across and two down. natural frequency goes as <code>m² + n²</code> for a square
+      plate; stretching the aspect ratio or clamping the edges pushes it up.<br><br>
+      <b>equilateral triangle — (p,q)</b>: the two lattice indices of the Lamé solution. frequency
+      goes as <code>p² + pq + q²</code>. the <code>′</code> twin is the mirror-antisymmetric partner
+      — it exists only when p ≠ q, which is exactly why the diagonal modes are single and every
+      other level comes in a degenerate pair.<br><br>
+      <b>disc / ring — (n,s)</b>: <i>n</i> nodal <b>diameters</b> (lines through the centre),
+      <i>s</i> nodal <b>circles</b> (rings). a trailing <code>′</code> marks the rotated twin of the
+      same mode — it has the same frequency but sits 90°/n around, and the drive point decides how
+      the two mix.<br><br>
+      <b>f</b> is the mode's natural frequency in the same units as the frequency slider — park the
+      slider on one of these numbers and that mode rings on its own. equal <b>f</b> values are
+      <b>degenerate</b>: they resonate together and superpose, which is where the intricate figures
+      come from. the bar is how hard the drive is currently pushing each one.
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Presets</h2>
+    <select aria-label="Preset" id="preset"></select>
+    <div class="btnrow">
+      <button class="act" id="btn-pause">pause</button>
+      <button class="act" id="btn-rand">randomize</button>
+    </div>
+  </div>
+
+  <div class="section fold" id="sec-lfo">
+    <h2>LFO <span class="tag" id="lfo-tag"></span><button class="infobtn" data-info="i-lfo">i</button></h2>
+    <div class="foldbody">
+      <div id="lfo-list"></div>
+      <div class="hint" id="i-lfo">
+        two free-running modulators. each has a list of targets, and each target its own bipolar
+        <b>amount</b> — the fraction of that parameter's full range the lfo sweeps. modulation is
+        added <b>on top of</b> the slider rather than replacing it, so the slider stays yours: move it
+        and the whole modulated swing moves with it. the readout turns blue while a value is being
+        driven.<br><br>
+        <b>plate shape</b>, <b>edge condition</b> and <b>dispersion</b> are steppable targets — the
+        lfo quantises to a whole setting and only fires on a change, so a slow square wave flips
+        between two plates instead of thrashing the solver.<br><br>
+        <b>s&amp;h</b> holds a fresh random value for a whole cycle, so <b>rate</b> is the step rate.
+        <b>phase</b> offsets one lfo against the other. rate and depth are themselves midi targets.
+        settings persist locally.
+      </div>
+    </div>
+  </div>
+
+  <div class="section fold collapsed" id="sec-midi">
+    <h2>MIDI <span class="tag" id="midi-tag"></span><button class="infobtn" data-info="i-midi">i</button></h2>
+    <div class="foldbody">
+      <div class="midi-head">
+        <div class="midi-dot" id="midi-dot"></div>
+        <span id="midi-status-text">probing…</span>
+      </div>
+      <div class="sublabel">input device</div>
+      <select aria-label="MIDI input device" id="midi-input-select"><option value="">— all inputs —</option></select>
+      <div id="midi-monitor">waiting for messages…</div>
+      <div id="params-midi"></div>
+      <div class="sublabel">cc mapping</div>
+      <div id="map-list"></div>
+      <button id="map-add">+ add cc mapping</button>
+      <div class="btnrow" style="margin-top:8px">
+        <button class="act" id="btn-midiclear">clear all</button>
+      </div>
+      <div class="hint" id="i-midi">
+        add a mapping, pick a target, hit <b>learn</b> and move a knob. the monitor above shows every
+        incoming message, so you can confirm the controller is reaching the page at all.<br><br>
+        <b>lo / hi</b> set the range the full 0–127 sweep covers — invert them to reverse the knob.
+        <b>smoothing</b> interpolates between 7-bit steps so sweeps do not stair-step.
+        mappings persist locally.
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Export <span class="tag" id="export-tag"></span><button class="infobtn" data-info="i-export">i</button></h2>
+    <div class="sublabel">frame aspect</div>
+    <select aria-label="Plate aspect ratio" id="aspect">
+      <option value="0" selected>free — fill window</option>
+      <option value="1">1:1 — square</option>
+      <option value="1.7778">16:9 — landscape</option>
+      <option value="0.5625">9:16 — vertical</option>
+      <option value="1.3333">4:3</option>
+      <option value="0.8">4:5 — portrait</option>
+      <option value="2.3529">2.35:1 — scope</option>
+    </select>
+    <div class="sublabel">capture resolution</div>
+    <select aria-label="Capture resolution" id="capres">
+      <option value="0" selected>viewport</option>
+      <option value="1080">1080p</option>
+      <option value="1440">1440p</option>
+      <option value="2160">2160p — 4k</option>
+    </select>
+    <div id="params-export"></div>
+    <div class="btnrow" style="margin-bottom:6px">
+      <button class="act" id="btn-png">export png</button>
+    </div>
+    <div class="btnrow">
+      <button class="act primary" id="btn-rec">● record video</button>
+    </div>
+    <div class="hint" id="i-export">
+      the frame aspect letterboxes the canvas to a fixed ratio — png and video capture exactly that
+      region, so nothing is cropped afterwards.<br><br>
+      <b>capture resolution</b> renders the recording off-screen at full size regardless of window
+      size. webm/vp9 at a high bitrate is far cleaner than the default; grain-heavy frames are hard
+      to compress, so raise the bitrate if you still see mush.
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Keys <span class="tag"></span><button class="infobtn" data-info="i-keys">i</button></h2>
+    <div class="hint open" id="i-keys">
+      <b>space</b> pause · <b>r</b> scatter grains · <b>g</b> randomize<br>
+      <b>d</b> grains · <b>f</b> field mode · <b>s</b> png · <b>v</b> record · <b>h</b> panel<br><br>
+      <b>drag</b> the plate to move the driver · <b>shift-click</b> to pin a damping finger<br>
+      <b>scroll</b> to sweep the frequency · <b>double-click</b> any slider to reset it
+    </div>
+  </div>
+</div>
+
+<div id="err" role="alert" aria-live="assertive"></div>
+
+<script>
+'use strict';
+
+/* ================================================================
+   CHLADNI // MODAL — kirchhoff plate eigenmode synthesizer
+
+   the plate is treated as a bank of damped resonators. a drive
+   waveform is decomposed into partials; each partial excites every
+   mode through a single-degree-of-freedom response, weighted by how
+   well the excitation point couples to that mode's shape.
+
+     D ∇⁴w + ρh ∂²w/∂t² = 0    →    ω ∝ k²   (plate, biharmonic)
+
+   instantaneous displacement is summed on the gpu; the time-averaged
+   rms field (what the sand actually integrates) is solved analytically
+   on the cpu whenever a parameter changes.
+   ================================================================ */
+
+const canvas = document.getElementById('canvas');
+const gl = canvas.getContext('webgl2', { preserveDrawingBuffer: true, antialias: true, alpha: false });
+
+function fatal(msg) {
+  const el = document.getElementById('err');
+  el.style.display = 'block';
+  el.innerHTML = '<h1 style="letter-spacing:0.3em;font-size:13px">CHLADNI // MODAL</h1><p style="margin-top:20px">' + msg + '</p>';
+  throw new Error(msg);
+}
+if (!gl) fatal('webgl2 is not available in this browser.');
+
+const MAXMODES = 96;      // uniform array budget
+const GRID     = 128;     // cpu rms field resolution
+
+/* ================================================================
+   special functions — bessel J / Y / I, beam eigenfunctions, roots
+   ================================================================ */
+
+const EULER = 0.5772156649015329;
+const TAU   = 2 * Math.PI;
+const TRI_H = Math.sqrt(3) / 2;   // equilateral altitude for unit side
+
+function besselJ(n, x) {
+  if (x < 0) { const v = besselJ(n, -x); return (n & 1) ? -v : v; }
+  const h = x / 2;
+  let t = 1;
+  for (let i = 0; i < n; i++) t *= h / (i + 1);
+  let sum = 0;
+  for (let k = 0; k < 120; k++) {
+    sum += t;
+    t *= -(h * h) / ((k + 1) * (k + 1 + n));
+    if (Math.abs(t) < 1e-17 * (Math.abs(sum) + 1e-30)) break;
+  }
+  return sum;
+}
+// J_n'(x) = (J_{n-1} - J_{n+1}) / 2, with J_0' = -J_1
+function besselJp(n, x) {
+  return n === 0 ? -besselJ(1, x) : 0.5 * (besselJ(n - 1, x) - besselJ(n + 1, x));
+}
+
+// digamma at positive integers: ψ(1) = -γ, ψ(m+1) = ψ(m) + 1/m
+const PSI = [0, -EULER];
+for (let m = 2; m < 200; m++) PSI[m] = PSI[m - 1] + 1 / (m - 1);
+
+// bessel of the second kind, integer order (A&S 9.1.11) — needed for the ring
+function besselY(n, x) {
+  if (x <= 0) return -Infinity;
+  const h = x / 2, lh = Math.log(h);
+  let finite = 0;
+  for (let k = 0; k < n; k++) {
+    let a = 1;
+    for (let j = 1; j <= n - k - 1; j++) a *= j;      // (n-k-1)!
+    let kf = 1;
+    for (let j = 1; j <= k; j++) kf *= j;             // k!
+    finite += (a / kf) * Math.pow(h, 2 * k - n);
+  }
+  let nf = 1;
+  for (let j = 1; j <= n; j++) nf *= j;
+  let t = Math.pow(h, n) / nf, series = 0;
+  for (let k = 0; k < 160; k++) {
+    series += t * (PSI[k + 1] + PSI[n + k + 1]);
+    t *= -(h * h) / ((k + 1) * (n + k + 1));
+    if (Math.abs(t) < 1e-18 * (Math.abs(series) + 1e-30)) break;
+  }
+  return (2 / Math.PI) * besselJ(n, x) * lh - finite / Math.PI - series / Math.PI;
+}
+
+// modified bessel, all terms positive so no cancellation
+function besselI(n, x) {
+  const h = x / 2;
+  let t = 1;
+  for (let i = 0; i < n; i++) t *= h / (i + 1);
+  let sum = 0;
+  for (let k = 0; k < 300; k++) {
+    sum += t;
+    t *= (h * h) / ((k + 1) * (k + 1 + n));
+    if (t < 1e-18 * sum) break;
+  }
+  return sum;
+}
+function besselIp(n, x) {
+  return n === 0 ? besselI(1, x) : 0.5 * (besselI(n - 1, x) + besselI(n + 1, x));
+}
+
+// roots of f on (lo, hi] by scan + bisection
+function findRoots(f, lo, hi, step, want) {
+  const out = [];
+  let xa = lo, fa = f(xa);
+  for (let x = lo + step; x <= hi && out.length < want; x += step) {
+    const fb = f(x);
+    if (Number.isFinite(fa) && Number.isFinite(fb) && (fa < 0) !== (fb < 0)) {
+      let a = xa, b = x, fA = fa;
+      for (let i = 0; i < 70; i++) {
+        const m = 0.5 * (a + b), fm = f(m);
+        if (!Number.isFinite(fm)) break;
+        if ((fA < 0) !== (fm < 0)) b = m; else { a = m; fA = fm; }
+      }
+      out.push(0.5 * (a + b));
+    }
+    xa = x; fa = fb;
+  }
+  return out;
+}
+
+/* ---- beam eigenfunctions: the 1-d building blocks of a rectangular plate ----
+   the classic ritz construction — a rectangular plate mode is approximated by
+   the product of two beam modes carrying the edge condition of each axis.
+   -------------------------------------------------------------------------- */
+
+// clamped-clamped and free-free beams share cos β cosh β = 1
+const BEAM_ROOTS = findRoots(b => Math.cos(b) - 1 / Math.cosh(b), 1.0, 32, 0.05, 10);
+
+// stable evaluation: cosh(t) − σ·sinh(t) cancels badly if written literally
+function beamClamped(b, x) {
+  const sh = Math.sinh(b), sn = Math.sin(b);
+  const oneMinusS = (Math.cos(b) - sn - Math.exp(-b)) / (sh - sn);   // = 1 − σ, computed directly
+  const s = 1 - oneMinusS;
+  const t = b * x;
+  const coshMinus = 0.5 * (oneMinusS * Math.exp(t) + (2 - oneMinusS) * Math.exp(-t));
+  return coshMinus - Math.cos(t) + s * Math.sin(t);
+}
+
+// returns { beta, fn } for index i under the given 1-d edge condition
+function beamMode(cond, i) {
+  if (cond === 'supported') { const m = i + 1; return { beta: m * Math.PI, fn: x => Math.sin(m * Math.PI * x) }; }
+  if (cond === 'free')      { const m = i;     return { beta: m * Math.PI, fn: x => Math.cos(m * Math.PI * x) }; }
+  const b = BEAM_ROOTS[i];                                            // clamped
+  return b === undefined ? null : { beta: b, fn: x => beamClamped(b, x) };
+}
+
+/* ---- shared profile lookup ----
+   every 1-d factor a geometry needs — beam functions, radial bessel profiles —
+   is sampled into one texture so the shader has a single uniform code path.
+   ------------------------------------------------------------------------- */
+const PROF_W = 256, PROF_ROWS = 96;
+const profData = new Float32Array(PROF_W * PROF_ROWS);
+let profCount = 0;
+
+function resetProfiles() { profCount = 0; profData.fill(0); }
+function addProfile(fn) {
+  if (profCount >= PROF_ROWS) return -1;
+  const row = profCount++;
+  const tmp = new Float64Array(PROF_W);
+  let mx = 0;
+  for (let i = 0; i < PROF_W; i++) {
+    const v = fn(i / (PROF_W - 1));
+    tmp[i] = Number.isFinite(v) ? v : 0;
+    const a = Math.abs(tmp[i]);
+    if (a > mx) mx = a;
+  }
+  const s = mx > 1e-12 ? 1 / mx : 0;
+  for (let i = 0; i < PROF_W; i++) profData[row * PROF_W + i] = tmp[i] * s;
+  return row;
+}
+function profSample(row, s) {
+  if (row < 0) return 0;
+  const t = Math.min(1, Math.max(0, s)) * (PROF_W - 1);
+  const i = t | 0, f = t - i, o = row * PROF_W + i;
+  const b = (i + 1 < PROF_W) ? profData[o + 1] : profData[o];
+  return profData[o] + (b - profData[o]) * f;
+}
+
+/* ================================================================
+   shaders
+   ================================================================ */
+
+const VERT_QUAD = `#version 300 es
+layout(location=0) in vec2 a_pos;
+void main() { gl_Position = vec4(a_pos, 0.0, 1.0); }`;
+
+const FRAG_FIELD = `#version 300 es
+precision highp float;
+precision highp sampler2D;
+out vec4 fragColor;
+
+uniform vec4  uMode[${MAXMODES}];   // rect: (rowX, rowY, amp, -) · disc: (n, row, amp, psi) · tri: (m, n, amp, -)
+uniform int   uCount;
+uniform int   uGeom;      // 0 rectangle, 1 disc / ring, 2 right triangle
+uniform sampler2D uRms;
+uniform sampler2D uProf;  // 1-d profile bank: beam functions or radial bessel
+uniform vec2  uOrigin;    // plate origin in px
+uniform vec2  uPlate;     // plate size in px
+uniform float uScale;     // display normalisation for displacement
+uniform float uInner;     // ring inner radius (0 for a full disc)
+uniform int   uField;     // 0 off, 1 displacement, 2 rms
+uniform int   uPal;
+uniform vec2  uDrive;
+uniform int   uShowDrive;
+uniform vec3  uBg;
+uniform vec2  uFinger[4];
+uniform int   uFingerN;
+
+const float PI = 3.14159265359;
+const float TAU3 = 2.09439510239;      // 2π/3
+const int PROF_W = ${PROF_W};
+
+float prof(int row, float s) {
+  float t = clamp(s, 0.0, 1.0) * float(PROF_W - 1);
+  int i = int(floor(t));
+  float f = t - float(i);
+  float a = texelFetch(uProf, ivec2(i, row), 0).r;
+  float b = texelFetch(uProf, ivec2(min(i + 1, PROF_W - 1), row), 0).r;
+  return mix(a, b, f);
+}
+
+vec3 palette(int p, float t) {          // t in [-1, 1]
+  float a = abs(t);
+  if (p == 0) {                          // brass
+    vec3 hi = vec3(1.00, 0.82, 0.45), lo = vec3(0.24, 0.42, 0.62);
+    return mix(uBg, t > 0.0 ? hi : lo, pow(a, 0.75));
+  } else if (p == 1) {                   // ice
+    vec3 hi = vec3(0.62, 0.93, 1.00), lo = vec3(0.30, 0.36, 0.80);
+    return mix(uBg, t > 0.0 ? hi : lo, pow(a, 0.75));
+  } else if (p == 2) {                   // ember
+    vec3 hi = vec3(1.00, 0.62, 0.28), lo = vec3(0.52, 0.10, 0.36);
+    return mix(uBg, t > 0.0 ? hi : lo, pow(a, 0.75));
+  }
+  return mix(uBg, vec3(1.0), a);         // mono
+}
+
+void main() {
+  vec2 q = (gl_FragCoord.xy - uOrigin) / uPlate;
+
+  bool inside;
+  float th = 0.0, s = 0.0;
+  if (uGeom == 1) {
+    vec2 c = q * 2.0 - 1.0;
+    float r = length(c);
+    th = atan(c.y, c.x);
+    inside = r <= 1.0 && r >= uInner;
+    s = (r - uInner) / max(1e-6, 1.0 - uInner);
+  } else if (uGeom == 2) {
+    // equilateral triangle inscribed in the plate box
+    inside = q.x >= 0.0 && q.x <= 1.0 && q.y >= 0.0 && q.y <= 2.0 * q.x && q.y <= 2.0 - 2.0 * q.x;
+  } else {
+    inside = q.x >= 0.0 && q.x <= 1.0 && q.y >= 0.0 && q.y <= 1.0;
+  }
+  if (!inside) { fragColor = vec4(uBg, 1.0); return; }
+
+  // instantaneous displacement — modal superposition
+  float w = 0.0;
+  for (int i = 0; i < uCount; i++) {
+    vec4 m = uMode[i];
+    float shape;
+    if (uGeom == 1) {
+      shape = prof(int(m.y), s) * cos(m.x * th + m.w);
+    } else if (uGeom == 2) {
+      // six plane waves over the vertex point group, alternating sign;
+      // m.w picks the symmetric (sine) or antisymmetric (cosine) member
+      float k = m.x, al = m.y;
+      float X = q.x, Y = q.y * ${TRI_H.toFixed(8)};
+      float s = 0.0;
+      for (int j = 0; j < 6; j++) {
+        float th = (j < 3) ? al + float(j) * TAU3 : -al + float(j - 3) * TAU3;
+        float ph = k * (cos(th) * X + sin(th) * Y);
+        s += ((j < 3) ? 1.0 : -1.0) * ((m.w > 0.5) ? cos(ph) : sin(ph));
+      }
+      shape = s;
+    } else {
+      shape = prof(int(m.x), q.x) * prof(int(m.y), q.y);
+    }
+    w += m.z * shape;
+  }
+  w *= uScale;
+
+  float rms = texture(uRms, q).r;
+
+  vec3 col = uBg;
+  if (uField == 1)      col = palette(uPal, clamp(w, -1.0, 1.0));
+  else if (uField == 2) col = palette(uPal, clamp(rms, 0.0, 1.0));
+
+  if (uShowDrive == 1) {
+    float d = distance(q * uPlate, uDrive * uPlate);
+    col = mix(col, vec3(1.0, 0.36, 0.42), (1.0 - smoothstep(2.5, 4.5, d)) * 0.9);
+    col += vec3(1.0, 0.36, 0.42) * (1.0 - smoothstep(5.0, 9.0, d)) * 0.25;
+
+    // damping fingers: open rings, cool, so they never read as the drive point
+    for (int i = 0; i < 4; i++) {
+      if (i >= uFingerN) break;
+      float fd = distance(q * uPlate, uFinger[i] * uPlate);
+      float ring = 1.0 - smoothstep(1.0, 2.6, abs(fd - 6.0));
+      col = mix(col, vec3(0.42, 0.74, 1.0), ring * 0.85);
+    }
+  }
+
+  fragColor = vec4(col, 1.0);
+}`;
+
+const VERT_POINT = `#version 300 es
+layout(location=0) in vec2 a_p;
+uniform vec2 uOrigin;
+uniform vec2 uPlate;
+uniform vec2 uRes;
+uniform float uSize;
+void main() {
+  vec2 px = uOrigin + a_p * uPlate;
+  gl_Position = vec4(px / uRes * 2.0 - 1.0, 0.0, 1.0);
+  gl_PointSize = uSize;
+}`;
+
+const FRAG_POINT = `#version 300 es
+precision mediump float;
+uniform vec3 uColor;
+out vec4 fragColor;
+void main() {
+  vec2 d = gl_PointCoord - 0.5;
+  float a = 1.0 - smoothstep(0.18, 0.5, length(d));
+  if (a <= 0.003) discard;
+  fragColor = vec4(uColor, a);
+}`;
+
+function compile(type, src) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) fatal('shader: ' + gl.getShaderInfoLog(s));
+  return s;
+}
+function program(vs, fs) {
+  const p = gl.createProgram();
+  gl.attachShader(p, compile(gl.VERTEX_SHADER, vs));
+  gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) fatal('link: ' + gl.getProgramInfoLog(p));
+  return p;
+}
+
+const progField = program(VERT_QUAD, FRAG_FIELD);
+const progPoint = program(VERT_POINT, FRAG_POINT);
+
+const quadVao = gl.createVertexArray();
+gl.bindVertexArray(quadVao);
+const quadBuf = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+gl.enableVertexAttribArray(0);
+gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+const ptVao = gl.createVertexArray();
+gl.bindVertexArray(ptVao);
+const ptBuf = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, ptBuf);
+gl.enableVertexAttribArray(0);
+gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+gl.bindVertexArray(null);
+
+function makeTex(w, h, data, filter) {
+  const t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texImage2D(gl.TEXTURE_2D, 0, filter ? gl.R16F : gl.R32F, w, h, 0, gl.RED, gl.FLOAT, data);
+  const f = filter ? gl.LINEAR : gl.NEAREST;
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, f);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, f);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  return t;
+}
+// rms is sampled with filtering; profiles are fetched exactly, one row per mode
+const texRms  = makeTex(GRID, GRID, new Float32Array(GRID * GRID), true);
+const texProf = makeTex(PROF_W, PROF_ROWS, profData, false);
+
+function uploadProfiles() {
+  gl.bindTexture(gl.TEXTURE_2D, texProf);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, PROF_W, PROF_ROWS, gl.RED, gl.FLOAT, profData);
+}
+
+/* ================================================================
+   parameters
+   ================================================================ */
+
+const P = {};
+const PLATE_PARAMS = [
+  { id: 'aspect', label: 'aspect ratio', min: 0.25, max: 4,    step: 0.005, value: 1,    dp: 3 },
+  { id: 'inner',  label: 'inner radius', min: 0.08, max: 0.8,  step: 0.005, value: 0.35, dp: 3 },
+];
+// physical calibration — turns the abstract modal scale into hertz
+const UNIT_PARAMS = [
+  { id: 'psize',  label: 'plate size',   min: 5,   max: 100, step: 0.5,  value: 24,  dp: 1, unit: ' cm' },
+  { id: 'pthick', label: 'thickness',    min: 0.2, max: 5,   step: 0.05, value: 1,   dp: 2, unit: ' mm' },
+];
+const DRIVE_PARAMS = [
+  { id: 'freq',     label: 'frequency',  min: 1,   max: 160, step: 0.05, value: 25,  dp: 2 },
+  { id: 'q',        label: 'resonance q',min: 1,   max: 240, step: 0.5,  value: 60,  dp: 1 },
+  { id: 'partials', label: 'partials',   min: 1,   max: 8,   step: 1,    value: 5,   dp: 0 },
+  { id: 'tilt',     label: 'spectral tilt', min: -1.5, max: 1.5, step: 0.01, value: 0, dp: 2 },
+  { id: 'focus',    label: 'partial focus', min: 0, max: 8,  step: 0.02, value: 0, dp: 2,
+    fmt: v => v < 0.02 ? 'off' : v.toFixed(2) },
+  { id: 'focusq',   label: 'focus width', min: 0.1, max: 4,  step: 0.02, value: 0.6, dp: 2 },
+];
+const DRIVEPT_PARAMS = [
+  { id: 'dx', label: 'drive x', min: 0, max: 1, step: 0.002, value: 0.62, dp: 3 },
+  { id: 'dy', label: 'drive y', min: 0, max: 1, step: 0.002, value: 0.38, dp: 3 },
+  { id: 'finger', label: 'finger damping', min: 0, max: 8, step: 0.05, value: 3, dp: 2 },
+];
+const GRAIN_PARAMS = [
+  { id: 'grains', label: 'count',         min: 0,   max: 80000, step: 1000,  value: 80000, dp: 0 },
+  { id: 'feed',   label: 'feed rate',     min: 0,   max: 1,     step: 0.002, value: 1,     dp: 3 },
+  { id: 'crawl',  label: 'crawl rate',    min: 0,   max: 0.4,   step: 0.002, value: 0.2,   dp: 3 },
+  { id: 'hop',    label: 'hop threshold', min: 0,   max: 0.25,  step: 0.002, value: 0.05,  dp: 3 },
+  { id: 'jitter', label: 'jitter',        min: 0,   max: 1,     step: 0.005, value: 0.15,  dp: 3 },
+  { id: 'gsize',  label: 'grain size',    min: 0.8, max: 2.7,   step: 0.05,  value: 1,     dp: 2 },
+  { id: 'mix',    label: 'fine fraction', min: 0,   max: 1,     step: 0.01,  value: 0.35,  dp: 2 },
+];
+// grain colour as numbers, so hue is mappable like anything else.
+// hsl(42, 72%, 86%) is the original #f5e6c2.
+const GRAINCOL_PARAMS = [
+  { id: 'ghue', label: 'sand hue',        min: 0, max: 360, step: 1, value: 42, dp: 0, unit: '°' },
+  { id: 'gsat', label: 'sand saturation', min: 0, max: 100, step: 1, value: 72, dp: 0, unit: '%' },
+  { id: 'glit', label: 'sand lightness',  min: 0, max: 100, step: 1, value: 86, dp: 0, unit: '%' },
+  { id: 'fhue', label: 'fine hue',        min: 0, max: 360, step: 1, value: 200, dp: 0, unit: '°' },
+];
+const RENDER_PARAMS = [
+  { id: 'motion', label: 'motion', min: 0, max: 0.03, step: 0.0002, value: 0.012, dp: 4 },
+];
+const AUDIO_PARAMS = [
+  { id: 'vol',    label: 'volume',         min: 0,   max: 1,  step: 0.005, value: 0.35, dp: 3 },
+  { id: 'basehz', label: 'pitch per unit', min: 0.5, max: 30, step: 0.05,  value: 8,    dp: 2, unit: ' hz' },
+];
+const MIDI_PARAMS = [
+  { id: 'slew', label: 'smoothing', min: 0, max: 300, step: 1, value: 45, dp: 0, unit: ' ms' },
+];
+const EXPORT_PARAMS = [
+  { id: 'bitrate', label: 'video bitrate', min: 4, max: 120, step: 1, value: 40, dp: 0, unit: ' mbps' },
+];
+
+const paramById = {};
+// PB is the *base* value — what a slider or a midi cc writes. P is the base plus
+// whatever the lfos are currently adding, and is the only thing the solver reads.
+const PB = {};
+let modOffset = {};
+[PLATE_PARAMS, UNIT_PARAMS, DRIVE_PARAMS, DRIVEPT_PARAMS, GRAIN_PARAMS, GRAINCOL_PARAMS,
+ RENDER_PARAMS, AUDIO_PARAMS, MIDI_PARAMS, EXPORT_PARAMS]
+  .forEach(list => list.forEach(d => { paramById[d.id] = d; P[d.id] = d.value; PB[d.id] = d.value; }));
+
+let geom = 'disc', edge = 'supported', disp = 'plate', waveform = 'sine', medium = 'sand';
+let fieldMode = 0, showGrains = true, palette = 0, paused = false, showDrive = true;
+let snapOn = false, realHz = false, material = 'steel';
+let fingers = [];                    // damping points, plate coords, max 4
+
+/* user colours */
+let colCanvas = '#0a0b0e';
+function hex2rgb(h) {
+  const v = parseInt(h.slice(1), 16);
+  return [((v >> 16) & 255) / 255, ((v >> 8) & 255) / 255, (v & 255) / 255];
+}
+function hsl2rgb(h, sa, l) {
+  h = ((h % 360) + 360) % 360; sa /= 100; l /= 100;
+  const c = (1 - Math.abs(2 * l - 1)) * sa;
+  const x = c * (1 - Math.abs((h / 60) % 2 - 1));
+  const m = l - c / 2;
+  let r = 0, g = 0, b = 0;
+  if (h < 60)       { r = c; g = x; }
+  else if (h < 120) { r = x; g = c; }
+  else if (h < 180) { g = c; b = x; }
+  else if (h < 240) { g = x; b = c; }
+  else if (h < 300) { r = x; b = c; }
+  else              { r = c; b = x; }
+  return [r + m, g + m, b + m];
+}
+function coarseRgb() { return hsl2rgb(P.ghue, P.gsat, P.glit); }
+function fineRgb()   { return hsl2rgb(P.fhue, P.gsat, P.glit); }
+function rgbCss(c) { return 'rgb(' + c.map(v => Math.round(v * 255)).join(',') + ')'; }
+
+/* ---- physical calibration: modal units → hertz ----
+   a kirchhoff plate on the unit-area domain used here has
+     f = π · F · h · c_p / (2 L² √12),   c_p = √( E / ρ(1−ν²) )
+   so the size term is fourth-power in frequency: twice the plate, two octaves down. */
+const MATERIALS = {
+  steel: { label: 'steel',     E: 200e9, rho: 7850, nu: 0.30 },
+  alu:   { label: 'aluminium', E: 69e9,  rho: 2700, nu: 0.33 },
+  brass: { label: 'brass',     E: 100e9, rho: 8500, nu: 0.34 },
+  glass: { label: 'glass',     E: 70e9,  rho: 2500, nu: 0.22 },
+};
+const MAT_KEYS = ['steel', 'alu', 'brass', 'glass'];
+function hzPerUnit() {
+  const m = MATERIALS[material] || MATERIALS.steel;
+  const cp = Math.sqrt(m.E / (m.rho * (1 - m.nu * m.nu)));
+  const L = P.psize / 100, h = P.pthick / 1000;
+  return Math.PI * h * cp / (2 * L * L * Math.sqrt(12));
+}
+function fmtHz(v) {
+  if (!Number.isFinite(v)) return '—';
+  return v >= 1000 ? (v / 1000).toFixed(2) + ' khz' : v.toFixed(0) + ' hz';
+}
+
+/* ================================================================
+   mode catalogue
+   ================================================================ */
+
+let catalogue = [];     // every candidate mode for the current plate
+let active = [];        // pruned, currently excited modes
+let spec = [];          // drive partials
+let partialModes = [];  // per-partial sparse index into `active`
+
+/* which edge conditions each geometry can actually represent */
+const EDGES_FOR = {
+  rect: ['free', 'supported', 'clamped', 'mixed'],
+  disc: ['free', 'supported', 'clamped'],
+  ring: ['supported'],
+  tri:  ['supported'],
+};
+
+function ringInner() { return geom === 'ring' ? P.inner : 0; }
+
+function buildCatalogue() {
+  resetProfiles();
+  const list = [];
+  const toF = k2 => disp === 'plate' ? k2 / (Math.PI * Math.PI) : Math.sqrt(k2) / Math.PI;
+
+  if (geom === 'rect') {
+    // one beam-function bank per axis; "mixed" clamps x and frees y
+    const condX = edge === 'mixed' ? 'clamped' : edge;
+    const condY = edge === 'mixed' ? 'free' : edge;
+    const bank = cond => {
+      const out = [];
+      for (let i = 0; i < 10; i++) {
+        const b = beamMode(cond, i);
+        if (!b) break;
+        b.row = addProfile(b.fn);
+        b.idx = cond === 'free' ? i : i + 1;
+        out.push(b);
+      }
+      return out;
+    };
+    const xs = bank(condX), ys = bank(condY);
+    // aspect at constant area, so frequencies stay comparable as it stretches
+    const w = Math.sqrt(P.aspect), h = 1 / Math.sqrt(P.aspect);
+    for (const bx of xs) for (const by of ys) {
+      const kx = bx.beta / w, ky = by.beta / h;
+      const k2 = kx * kx + ky * ky;
+      if (k2 < 1e-9) continue;
+      list.push({ p: bx.row, q: by.row, psi: 0, F: toF(k2),
+                  label: '(' + bx.idx + ',' + by.idx + ')' });
+    }
+
+  } else if (geom === 'disc' || geom === 'ring') {
+    const a = ringInner();
+    for (let n = 0; n < 8; n++) {
+      let ks, mk;
+      if (geom === 'ring') {
+        // both rims simply supported: J_n(kr)Y_n(ka) − Y_n(kr)J_n(ka), normalised by Y_n(ka)
+        const c = k => besselJ(n, k * a) / besselY(n, k * a);
+        ks = findRoots(k => besselJ(n, k) - c(k) * besselY(n, k), 0.3, 27, 0.02, 6);
+        mk = k => { const ck = c(k); return u => { const r = a + u * (1 - a); return besselJ(n, k * r) - ck * besselY(n, k * r); }; };
+      } else if (edge === 'supported') {
+        ks = findRoots(k => besselJ(n, k), 0.05, 26, 0.05, 6);
+        mk = k => u => besselJ(n, k * u);
+      } else if (edge === 'free') {
+        ks = findRoots(k => besselJp(n, k), 0.05, 26, 0.05, 6);
+        mk = k => u => besselJ(n, k * u);
+      } else {
+        // clamped rim: w = w' = 0 needs the modified bessel companion
+        ks = findRoots(k => besselJ(n, k) * (besselIp(n, k) / besselI(n, k)) - besselJp(n, k), 0.4, 26, 0.02, 6);
+        mk = k => { const ci = besselJ(n, k) / besselI(n, k); return u => besselJ(n, k * u) - ci * besselI(n, k * u); };
+      }
+      for (let s = 0; s < ks.length; s++) {
+        const k = ks[s];
+        if (!Number.isFinite(k) || k < 0.05) continue;
+        const row = addProfile(mk(k));
+        if (row < 0) break;
+        const F = toF(k * k), lab = '(' + n + ',' + (s + 1) + ')';
+        list.push({ p: n, q: row, psi: 0, F, label: lab });
+        if (n > 0) list.push({ p: n, q: row, psi: Math.PI / 2, F, label: lab + '′' });
+      }
+    }
+
+  } else {
+    /* equilateral triangle — exact Dirichlet modes by the reflection-group (image)
+       method. six plane waves over the vertex point group with alternating sign are
+       automatically odd about the two sides meeting at the origin; vanishing on the
+       third side quantises them onto the lattice λ = (16π²/9)(p² + pq + q²).
+       the SINE sum is symmetric about the altitudes, the COSINE sum antisymmetric —
+       the antisymmetric partner vanishes identically when p === q, which reproduces
+       the true multiplicities (1 on the diagonal, 2 off it). */
+    const AREA_L2 = 4 / Math.sqrt(3);              // side² giving unit area
+    // ψ(p,q) ≡ ψ(q,p), so only the upper triangle of the lattice is enumerated
+    for (let p = 1; p <= 11; p++) {
+      for (let q = p; q <= 11; q++) {
+        const A1 = TAU * (2 * p + q) / 3;
+        const A2 = -TAU * (p - q) / 3;
+        const A3 = -TAU * (p + 2 * q) / 3;
+        const kc = A1, ks = (A3 - A2) / Math.sqrt(3);
+        const k = Math.hypot(kc, ks), al = Math.atan2(ks, kc);
+        const k2 = k * k / AREA_L2;                // rescaled to unit area
+        const F = disp === 'plate' ? k2 / (Math.PI * Math.PI) : Math.sqrt(k2) / Math.PI;
+        const lab = '(' + p + ',' + q + ')';
+        list.push({ p: k, q: al, psi: 0, F, label: lab });
+        if (p !== q) list.push({ p: k, q: al, psi: 1, F, label: lab + '′' });
+      }
+    }
+  }
+
+  catalogue = list;
+  for (const m of catalogue) { m.hre = null; m.him = null; }
+  // the ladder of distinct resonances, for snap-to-resonance and the wheel
+  modeFreqs = [...new Set(list.map(m => +m.F.toFixed(4)))].sort((a, b) => a - b);
+  uploadProfiles();
+}
+
+let modeFreqs = [];
+function snapFreq(v) {
+  if (!modeFreqs.length) return v;
+  let best = modeFreqs[0], bd = Math.abs(v - best);
+  for (let i = 1; i < modeFreqs.length; i++) {
+    const d = Math.abs(v - modeFreqs[i]);
+    if (d < bd) { bd = d; best = modeFreqs[i]; }
+    else if (modeFreqs[i] > v) break;              // sorted, so nothing closer follows
+  }
+  return best;
+}
+
+// modal shape at an arbitrary point — mirrors the shader exactly
+function shapeAt(m, x, y) {
+  if (geom === 'rect') return profSample(m.p, x) * profSample(m.q, y);
+  if (geom === 'tri') {
+    if (y < 0 || y > 2 * x || y > 2 - 2 * x) return 0;
+    const X = x, Y = y * TRI_H;                    // plate box → unit-side triangle
+    const k = m.p, al = m.q, useCos = m.psi > 0.5;
+    let s = 0;
+    for (let j = 0; j < 6; j++) {
+      const th = j < 3 ? al + j * TAU / 3 : -al + (j - 3) * TAU / 3;
+      const ph = k * (Math.cos(th) * X + Math.sin(th) * Y);
+      s += (j < 3 ? 1 : -1) * (useCos ? Math.cos(ph) : Math.sin(ph));
+    }
+    return s;
+  }
+  const cx = x * 2 - 1, cy = y * 2 - 1;
+  let r = Math.hypot(cx, cy);
+  const a = ringInner();
+  if (r > 1) r = 1;
+  if (r < a) return 0;
+  const s = (r - a) / Math.max(1e-6, 1 - a);
+  return profSample(m.q, s) * Math.cos(m.p * Math.atan2(cy, cx) + m.psi);
+}
+
+// the excitation point projected onto the material — a driver parked in a ring's
+// hole (or outside the triangle) would otherwise couple to nothing at all
+function drivePoint() {
+  let x = Math.min(1, Math.max(0, P.dx)), y = Math.min(1, Math.max(0, P.dy));
+  if (geom === 'tri') {
+    y = Math.max(0, Math.min(y, Math.min(2 * x, 2 - 2 * x)));
+  } else if (geom === 'disc' || geom === 'ring') {
+    const a = ringInner();
+    let cx = x * 2 - 1, cy = y * 2 - 1;
+    let r = Math.hypot(cx, cy);
+    if (r < 1e-6) { cx = 1; cy = 0; r = 1; }        // dead centre has no defined angle
+    const rr = Math.min(0.995, Math.max(a * 1.02, r));
+    x = 0.5 + 0.5 * cx / r * rr;
+    y = 0.5 + 0.5 * cy / r * rr;
+  }
+  return [x, y];
+}
+
+/* ---- drive spectrum: waveform → partial amplitudes ---- */
+function buildSpectrum() {
+  const n_max = waveform === 'sine' ? 1 : Math.round(P.partials);
+  const out = [];
+  for (let n = 1; n <= n_max; n++) {
+    let a = 0;
+    switch (waveform) {
+      case 'sine':   a = n === 1 ? 1 : 0; break;
+      case 'saw':    a = 1 / n; break;
+      case 'square': a = (n & 1) ? 1 / n : 0; break;
+    }
+    if (a < 1e-6) continue;
+    a *= Math.pow(n, P.tilt);
+    // bandpass across the harmonic series — sweep it to isolate one partial
+    if (P.focus > 0) {
+      const d = (n - P.focus) / Math.max(0.05, P.focusq);
+      a *= Math.exp(-d * d);
+    }
+    out.push({ f: n * P.freq, a, ph: 0, n });
+  }
+  // the bandpass can attenuate everything; keep whatever survives best
+  let peak = 0;
+  for (const p of out) if (p.a > peak) peak = p.a;
+  const kept = peak > 0 ? out.filter(p => p.a > peak * 1e-4) : out;
+  const tot = kept.reduce((s, p) => s + p.a, 0) || 1;
+  kept.forEach(p => { p.a /= tot; });
+  spec = kept.length ? kept : [{ f: P.freq, a: 1, ph: 0, n: 1 }];
+}
+
+/* ---- modal solve: single-degree-of-freedom response per (mode, partial) ---- */
+function solveModes() {
+  buildSpectrum();
+  const Q = P.q, np = spec.length;
+  const [drx, dry] = drivePoint();
+  let peak = 0;
+
+  for (const m of catalogue) {
+    const c = shapeAt(m, drx, dry);
+    if (!m.hre || m.hre.length !== np) { m.hre = new Float32Array(np); m.him = new Float32Array(np); }
+    // a finger loads the plate where it touches: modes with a node there feel
+    // nothing, modes with an antinode there lose almost all of their Q
+    let sup = 0;
+    for (let f = 0; f < fingers.length; f++) {
+      const sh = shapeAt(m, fingers[f].x, fingers[f].y);
+      sup += sh * sh;
+    }
+    const Qm = Q / (1 + P.finger * sup);
+    let tot = 0;
+    for (let p = 0; p < np; p++) {
+      // H = 1 / ((1 - r²) + j·r/Q),  r = f_partial / f_mode
+      const r = spec[p].f / m.F;
+      const dre = 1 - r * r, dim = r / Qm;
+      const d2 = dre * dre + dim * dim;
+      const g = spec[p].a * c / d2;
+      const hre = g * dre, him = -g * dim;
+      m.hre[p] = hre; m.him[p] = him;
+      tot += Math.hypot(hre, him);
+    }
+    m.tot = tot;
+    if (tot > peak) peak = tot;
+  }
+
+  active = catalogue.filter(m => m.tot > peak * 0.008)
+                    .sort((x, y) => y.tot - x.tot)
+                    .slice(0, MAXMODES);
+
+  // a partial only meaningfully drives the handful of modes near its frequency;
+  // keeping a sparse index per partial makes the rms solve cheap for rich waveforms
+  let gpk = 0;
+  for (const m of active) for (let p = 0; p < np; p++) gpk = Math.max(gpk, Math.hypot(m.hre[p], m.him[p]));
+  partialModes = [];
+  for (let p = 0; p < np; p++) {
+    const idx = [];
+    for (let i = 0; i < active.length; i++) {
+      if (Math.hypot(active[i].hre[p], active[i].him[p]) > gpk * 0.015) idx.push(i);
+    }
+    partialModes.push(idx);
+  }
+
+  computeRms();
+  updateModeList();
+  buildWave();          // the audible drive follows the same spectrum
+  updateAudio();
+}
+
+/* ---- analytic time-averaged field ----------------------------------
+   partials at distinct frequencies are uncorrelated in time, so their
+   powers add:  ⟨w²⟩ = ½ Σ_p | Σ_i H_ip · W_i(x,y) |²
+   -------------------------------------------------------------------- */
+const rmsGrid = new Float32Array(GRID * GRID);
+let rmsPeak = 1, dispScale = 1;
+
+// separated plane-wave factors for the triangle: [mode][direction][grid]
+let triSX = null, triCX = null, triSY = null, triCY = null;
+function ensureTriTables(A, M) {
+  const need = M * 6 * GRID;
+  if (!triSX || triSX.length < need) {
+    triSX = new Float32Array(need); triCX = new Float32Array(need);
+    triSY = new Float32Array(need); triCY = new Float32Array(need);
+  }
+  for (let i = 0; i < M; i++) {
+    const k = A[i].p, al = A[i].q;
+    for (let j = 0; j < 6; j++) {
+      const th = j < 3 ? al + j * TAU / 3 : -al + (j - 3) * TAU / 3;
+      const kx = k * Math.cos(th);
+      const ky = k * Math.sin(th) * TRI_H;         // fold the y-squash in here
+      const o = (i * 6 + j) * GRID;
+      for (let g = 0; g < GRID; g++) {
+        const u = (g + 0.5) / GRID;
+        triSX[o + g] = Math.sin(kx * u); triCX[o + g] = Math.cos(kx * u);
+        triSY[o + g] = Math.sin(ky * u); triCY[o + g] = Math.cos(ky * u);
+      }
+    }
+  }
+}
+
+function computeRms() {
+  const A = active, M = A.length, np = spec.length;
+  rmsGrid.fill(0);
+  if (M === 0 || np === 0) { rmsPeak = 1; dispScale = 1; uploadRms(); return; }
+
+  const W = new Float32Array(M);
+  const rect = geom === 'rect', tri = geom === 'tri';
+
+  // separable shapes on a rectangle — precompute the 1-d factors once per axis
+  let tx = null, ty = null;
+  if (rect) {
+    tx = new Float32Array(M * GRID); ty = new Float32Array(M * GRID);
+    for (let i = 0; i < M; i++) {
+      for (let g = 0; g < GRID; g++) {
+        const u = (g + 0.5) / GRID;
+        tx[i * GRID + g] = profSample(A[i].p, u);
+        ty[i * GRID + g] = profSample(A[i].q, u);
+      }
+    }
+  }
+  // the triangle is a sum of six plane waves, so split each into its x and y
+  // factors and recombine with the angle-addition identity — no trig in the grid loop
+  if (tri) ensureTriTables(A, M);
+
+  const inner = ringInner();
+  let mx = 0;
+  for (let gy = 0; gy < GRID; gy++) {
+    const y = (gy + 0.5) / GRID;
+    for (let gx = 0; gx < GRID; gx++) {
+      const x = (gx + 0.5) / GRID;
+
+      if (rect) {
+        for (let i = 0; i < M; i++) W[i] = tx[i * GRID + gx] * ty[i * GRID + gy];
+      } else if (tri) {
+        if (y > 2 * x || y > 2 - 2 * x) { rmsGrid[gy * GRID + gx] = 0; continue; }
+        for (let i = 0; i < M; i++) {
+          const useCos = A[i].psi > 0.5;
+          let s = 0;
+          for (let j = 0; j < 6; j++) {
+            const o = (i * 6 + j) * GRID;
+            const sx = triSX[o + gx], cx = triCX[o + gx];
+            const sy = triSY[o + gy], cy = triCY[o + gy];
+            s += (j < 3 ? 1 : -1) * (useCos ? (cx * cy - sx * sy) : (sx * cy + cx * sy));
+          }
+          W[i] = s;
+        }
+      } else {
+        const cx = x * 2 - 1, cy = y * 2 - 1, r = Math.hypot(cx, cy);
+        if (r > 1 || r < inner) { rmsGrid[gy * GRID + gx] = 0; continue; }
+        const th = Math.atan2(cy, cx);
+        const s = (r - inner) / Math.max(1e-6, 1 - inner);
+        for (let i = 0; i < M; i++) W[i] = profSample(A[i].q, s) * Math.cos(A[i].p * th + A[i].psi);
+      }
+
+      let s = 0;
+      for (let p = 0; p < np; p++) {
+        const idx = partialModes[p];
+        let re = 0, im = 0;
+        for (let j = 0; j < idx.length; j++) {
+          const i = idx[j], w = W[i];
+          re += A[i].hre[p] * w; im += A[i].him[p] * w;
+        }
+        s += re * re + im * im;
+      }
+      s *= 0.5;
+      rmsGrid[gy * GRID + gx] = s;
+      if (s > mx) mx = s;
+    }
+  }
+
+  rmsPeak = Math.sqrt(mx) || 1;
+  for (let i = 0; i < rmsGrid.length; i++) rmsGrid[i] = Math.sqrt(rmsGrid[i]) / rmsPeak;
+  dispScale = 1 / (Math.SQRT2 * rmsPeak);
+  uploadRms();
+}
+
+function uploadRms() {
+  gl.bindTexture(gl.TEXTURE_2D, texRms);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, GRID, GRID, gl.RED, gl.FLOAT, rmsGrid);
+}
+
+// bilinear sample of the normalised rms field
+function rmsAt(x, y) {
+  let u = x * GRID - 0.5, v = y * GRID - 0.5;
+  u = Math.min(GRID - 1.001, Math.max(0, u));
+  v = Math.min(GRID - 1.001, Math.max(0, v));
+  const i = u | 0, j = v | 0, fu = u - i, fv = v - j;
+  const a = rmsGrid[j * GRID + i],       b = rmsGrid[j * GRID + i + 1];
+  const c = rmsGrid[(j + 1) * GRID + i], d = rmsGrid[(j + 1) * GRID + i + 1];
+  return (a + (b - a) * fu) * (1 - fv) + (c + (d - c) * fu) * fv;
+}
+
+/* ================================================================
+   grains — advected down (or up) the gradient of the rms field
+   ================================================================ */
+
+const MAXGRAINS = 80000;
+const gpos = new Float32Array(MAXGRAINS * 2);
+let grainCount = 0;
+let nCoarse = 0;                   // [0, nCoarse) crawl to nodes, the rest to antinodes
+let feedAcc = 0, feedPtr = 0;      // rolling recycle cursor
+
+// one array, two populations — the split is an index, so nothing per-grain is stored
+function splitGrains() {
+  nCoarse = medium === 'sand'   ? grainCount
+          : medium === 'powder' ? 0
+          : Math.round(grainCount * (1 - P.mix));
+}
+
+// drop one grain at a fresh random spot, distributed evenly over the shape
+function placeGrain(i) {
+  let x, y;
+  if (geom === 'disc' || geom === 'ring') {
+    const a = ringInner();
+    const r = Math.sqrt(a * a + Math.random() * (1 - a * a)) * 0.995;
+    const t = Math.random() * Math.PI * 2;
+    x = 0.5 + 0.5 * r * Math.cos(t);
+    y = 0.5 + 0.5 * r * Math.sin(t);
+  } else if (geom === 'tri') {
+    // uniform over the triangle (0,0) (1,0) (0.5,1) by folding the unit square
+    let r1 = Math.random(), r2 = Math.random();
+    if (r1 + r2 > 1) { r1 = 1 - r1; r2 = 1 - r2; }
+    x = r1 + 0.5 * r2; y = r2;
+  } else {
+    x = Math.random(); y = Math.random();
+  }
+  gpos[i * 2] = x; gpos[i * 2 + 1] = y;
+}
+
+function scatterGrains() {
+  grainCount = Math.round(P.grains);
+  splitGrains();
+  for (let i = 0; i < grainCount; i++) placeGrain(i);
+}
+
+function stepGrains(dt) {
+  const n = Math.round(P.grains);
+  if (n !== grainCount) {
+    for (let i = grainCount; i < n; i++) placeGrain(i);   // top up, leave settled ones alone
+    grainCount = n;
+  }
+  if (!grainCount) return;
+
+  // continuous feed: recycle grains back onto the plate oldest-first, so the
+  // population keeps turning over instead of settling once and freezing
+  if (P.feed > 0) {
+    feedAcc += P.feed * grainCount * dt;
+    let recycle = Math.floor(feedAcc);
+    if (recycle > 0) {
+      feedAcc -= recycle;
+      recycle = Math.min(recycle, grainCount);
+      for (let j = 0; j < recycle; j++) {
+        placeGrain(feedPtr % grainCount);
+        feedPtr++;
+      }
+    }
+  }
+
+  splitGrains();
+  if (nCoarse > 0) moveGrains(0, nCoarse, -1, dt);
+  if (grainCount > nCoarse) moveGrains(nCoarse, grainCount, 1, dt);
+}
+
+// dir −1 crawls down the amplitude gradient (sand → nodes), +1 up it (powder → antinodes)
+function moveGrains(lo, hi, dir, dt) {
+  const eps = 1 / GRID;
+  const speed = P.crawl * 0.9 * dt;
+  const jit = P.jitter * 1.8 * dt;
+  const thr = P.hop;
+  const round = geom === 'disc' || geom === 'ring';
+  const tri = geom === 'tri';
+  const inner = ringInner();
+
+  for (let i = lo; i < hi; i++) {
+    const ix = i * 2, iy = ix + 1;
+    let x = gpos[ix], y = gpos[iy];
+
+    const here = rmsAt(x, y);
+    // a grain only hops while the local acceleration exceeds gravity
+    const mob = here <= thr ? 0 : Math.min(1, (here - thr) / 0.25);
+    if (mob > 0) {
+      const gx = (rmsAt(x + eps, y) - rmsAt(x - eps, y)) * 0.5;
+      const gy = (rmsAt(x, y + eps) - rmsAt(x, y - eps)) * 0.5;
+      const gm = Math.hypot(gx, gy) + 1e-6;
+      // bouncing scales with how hard the plate is shaking here, so jitter
+      // genuinely competes with the crawl instead of being a rounding error
+      const j = jit * here;
+      x += dir * (gx / gm) * speed * mob + (Math.random() - 0.5) * j;
+      y += dir * (gy / gm) * speed * mob + (Math.random() - 0.5) * j;
+    }
+
+    if (round) {
+      const cx = x * 2 - 1, cy = y * 2 - 1, r = Math.hypot(cx, cy);
+      if (r > 0.995)      { x = 0.5 + 0.5 * cx / r * 0.99;  y = 0.5 + 0.5 * cy / r * 0.99; }
+      else if (r < inner && r > 1e-6) {
+        const rr = inner * 1.005;
+        x = 0.5 + 0.5 * cx / r * rr; y = 0.5 + 0.5 * cy / r * rr;
+      }
+    } else if (tri) {
+      // reflect back across whichever of the three edges was crossed
+      for (let it = 0; it < 3; it++) {
+        if (y < 0) y = -y;
+        const dA = 2 * x - y;                        // edge y = 2x
+        if (dA < 0) { const s = 2 * dA / 5; x -= s * 2; y += s; }
+        const dB = 2 * x + y - 2;                    // edge y = 2 − 2x
+        if (dB > 0) { const s = 2 * dB / 5; x -= s * 2; y -= s; }
+        if (y >= 0 && 2 * x - y >= 0 && 2 * x + y - 2 <= 0) break;
+      }
+    } else {
+      if (x < 0) x = -x; else if (x > 1) x = 2 - x;
+      if (y < 0) y = -y; else if (y > 1) y = 2 - y;
+    }
+    gpos[ix] = x; gpos[iy] = y;
+  }
+}
+
+/* ================================================================
+   render
+   ================================================================ */
+
+let W = 0, H = 0, origin = [0, 0], side = 0, plate = [0, 0];
+let frame_ = [0, 0, 0, 0];           // framed region in gl pixels (x, y, w, h), y from bottom
+let capturing = false, capW = 0, capH = 0;
+const modeBuf = new Float32Array(MAXMODES * 4);
+
+function aspectValue() {
+  const el = document.getElementById('aspect');
+  return el ? (parseFloat(el.value) || 0) : 0;
+}
+
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  // a backgrounded or minimised window reports 0 — never collapse the canvas to nothing
+  const vw = Math.max(1, innerWidth), vh = Math.max(1, innerHeight);
+  if (capturing) {
+    W = capW; H = capH;
+    // fit the capture frame inside the window so it stays watchable while recording
+    const s = Math.min(vw / capW, vh / capH);
+    canvas.style.inset = 'auto';
+    canvas.style.left = ((vw - capW * s) / 2) + 'px';
+    canvas.style.top = ((vh - capH * s) / 2) + 'px';
+    canvas.style.width = (capW * s) + 'px';
+    canvas.style.height = (capH * s) + 'px';
+  } else {
+    W = Math.round(vw * dpr); H = Math.round(vh * dpr);
+    canvas.style.inset = '0';
+    canvas.style.left = ''; canvas.style.top = '';
+    canvas.style.width = vw + 'px'; canvas.style.height = vh + 'px';
+  }
+  canvas.width = W; canvas.height = H;
+  computeFrame();
+}
+
+function computeFrame() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  // while capturing, the canvas *is* the frame — no panel inset, no letterbox
+  const panelW = (capturing || document.body.classList.contains('panel-hidden')) ? 0 : 292 * dpr;
+  const availW = W - panelW, availH = H;
+  const a = capturing ? 0 : aspectValue();
+  let fw = availW, fh = availH;
+  if (a > 0) {
+    fw = Math.min(availW, availH * a);
+    fh = fw / a;
+  }
+  frame_ = [Math.round((availW - fw) / 2), Math.round((availH - fh) / 2), Math.round(fw), Math.round(fh)];
+
+  // the rectangle stretches to its aspect ratio; the triangle's box is 1 : √3/2
+  // so it renders equilateral; everything else is square-boxed
+  const ar = geom === 'rect' ? P.aspect : (geom === 'tri' ? 1 / TRI_H : 1);
+  const fit = Math.min(fw, fh) * 0.88;
+  let pw = fit, ph = fit;
+  if (ar >= 1) ph = fit / ar; else pw = fit * ar;
+  plate = [pw, ph];
+  side = Math.min(pw, ph);
+  origin = [frame_[0] + (fw - pw) / 2, frame_[1] + (fh - ph) / 2];
+}
+addEventListener('resize', resize);
+
+const uF = {};
+['uMode', 'uCount', 'uGeom', 'uRms', 'uProf', 'uOrigin', 'uPlate', 'uInner',
+ 'uScale', 'uField', 'uPal', 'uDrive', 'uShowDrive', 'uBg', 'uFinger', 'uFingerN']
+  .forEach(k => uF[k] = gl.getUniformLocation(progField, k));
+const fingerBuf = new Float32Array(8);
+const uP = {};
+['uOrigin', 'uPlate', 'uRes', 'uSize', 'uColor'].forEach(k => uP[k] = gl.getUniformLocation(progPoint, k));
+
+const GEOM_ID = { rect: 0, disc: 1, ring: 1, tri: 2 };
+
+let t = 0, last = performance.now();
+
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  if (!paused) { t += dt; stepGrains(dt); tickLfo(dt, now); }
+  tickMidi(dt);
+
+  gl.viewport(0, 0, W, H);
+  gl.disable(gl.BLEND);
+  gl.disable(gl.SCISSOR_TEST);
+  const cv = hex2rgb(colCanvas);
+  gl.clearColor(cv[0], cv[1], cv[2], 1);          // letterbox surround
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.enable(gl.SCISSOR_TEST);
+  gl.scissor(frame_[0], frame_[1], frame_[2], frame_[3]);
+  gl.clearColor(cv[0], cv[1], cv[2], 1);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+
+  // per-frame modal amplitudes: q_i(t) = Σ_p Re( H_ip · e^{j2πf_p t} )
+  const n = Math.min(active.length, MAXMODES);
+  const ts = t * P.motion;
+  for (let i = 0; i < n; i++) {
+    const m = active[i];
+    let q = 0;
+    for (let p = 0; p < spec.length; p++) {
+      const th = 2 * Math.PI * spec[p].f * ts + spec[p].ph;
+      q += m.hre[p] * Math.cos(th) - m.him[p] * Math.sin(th);
+    }
+    modeBuf[i * 4]     = m.p;
+    modeBuf[i * 4 + 1] = m.q;
+    modeBuf[i * 4 + 2] = q;
+    modeBuf[i * 4 + 3] = m.psi;
+  }
+
+  const bg = hex2rgb(colCanvas);
+  gl.useProgram(progField);
+  gl.bindVertexArray(quadVao);
+  gl.uniform4fv(uF.uMode, modeBuf);
+  gl.uniform1i(uF.uCount, n);
+  gl.uniform1i(uF.uGeom, GEOM_ID[geom]);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texRms);  gl.uniform1i(uF.uRms, 0);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texProf); gl.uniform1i(uF.uProf, 1);
+  gl.uniform2f(uF.uOrigin, origin[0], origin[1]);
+  gl.uniform2f(uF.uPlate, plate[0], plate[1]);
+  gl.uniform1f(uF.uInner, ringInner());
+  gl.uniform1f(uF.uScale, dispScale);
+  gl.uniform1i(uF.uField, fieldMode);
+  gl.uniform1i(uF.uPal, palette);
+  const dp = drivePoint();
+  gl.uniform2f(uF.uDrive, dp[0], dp[1]);
+  gl.uniform1i(uF.uShowDrive, showDrive ? 1 : 0);
+  gl.uniform3f(uF.uBg, bg[0], bg[1], bg[2]);
+  for (let i = 0; i < 4; i++) {
+    fingerBuf[i * 2]     = i < fingers.length ? fingers[i].x : -9;
+    fingerBuf[i * 2 + 1] = i < fingers.length ? fingers[i].y : -9;
+  }
+  gl.uniform2fv(uF.uFinger, fingerBuf);
+  gl.uniform1i(uF.uFingerN, fingers.length);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+  if (showGrains && grainCount > 0) {
+    gl.useProgram(progPoint);
+    gl.bindVertexArray(ptVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, ptBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, gpos.subarray(0, grainCount * 2), gl.DYNAMIC_DRAW);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    gl.uniform2f(uP.uOrigin, origin[0], origin[1]);
+    gl.uniform2f(uP.uPlate, plate[0], plate[1]);
+    gl.uniform2f(uP.uRes, W, H);
+    // grains keep their size relative to the plate when capturing at higher res
+    const dprEff = capturing ? (H / Math.max(1, innerHeight)) : Math.min(window.devicePixelRatio || 1, 2);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    if (nCoarse > 0) {
+      const gc = coarseRgb();
+      gl.uniform1f(uP.uSize, P.gsize * dprEff);
+      gl.uniform3f(uP.uColor, gc[0], gc[1], gc[2]);
+      gl.drawArrays(gl.POINTS, 0, nCoarse);
+    }
+    if (grainCount > nCoarse) {
+      // real powder is finer than the sand it shares the plate with
+      const fc = fineRgb();
+      gl.uniform1f(uP.uSize, Math.max(1, P.gsize * 0.65) * dprEff);
+      gl.uniform3f(uP.uColor, fc[0], fc[1], fc[2]);
+      gl.drawArrays(gl.POINTS, nCoarse, grainCount - nCoarse);
+    }
+    gl.disable(gl.BLEND);
+  }
+
+  gl.disable(gl.SCISSOR_TEST);
+  gl.bindVertexArray(null);
+  drawStatus();
+  requestAnimationFrame(frame);
+}
+
+/* ================================================================
+   ui
+   ================================================================ */
+
+function buildParamRows(list, container) {
+  container.innerHTML = '';
+  for (const d of list) {
+    const wrap = document.createElement('div');
+    wrap.className = 'param';
+    wrap.id = 'param-' + d.id;
+    wrap.innerHTML =
+      '<div class="row1"><label for="in-' + d.id + '">' + d.label + '</label><span class="val" id="val-' + d.id + '"></span></div>' +
+      '<div class="row2">' +
+      '<input type="range" id="in-' + d.id + '" aria-describedby="val-' + d.id + '" min="' + d.min + '" max="' + d.max + '" step="' + d.step + '" value="' + P[d.id] + '"></div>';
+    container.appendChild(wrap);
+    const input = wrap.querySelector('input');
+    input.title = 'double-click to reset to ' + (d.fmt ? d.fmt(d.value) : d.value);
+    input.addEventListener('input', () => setParam(d.id, parseFloat(input.value), false));
+    // d.value is the declared default and is never written to, so it stays a true default
+    input.addEventListener('dblclick', () => setParam(d.id, d.value));
+    refreshParamUI(d.id);
+  }
+}
+
+/* which drive controls the selected waveform actually uses */
+const WAVE_USES = {
+  sine:   { partials: false, tilt: false, focus: false, focusq: false },
+  square: { partials: true,  tilt: true,  focus: true,  focusq: true },
+  saw:    { partials: true,  tilt: true,  focus: true,  focusq: true },
+};
+function updateDriveEnable() {
+  const uses = WAVE_USES[waveform] || WAVE_USES.saw;
+  for (const id of ['partials', 'tilt', 'focus', 'focusq']) {
+    const wrap = document.getElementById('param-' + id);
+    if (!wrap) continue;
+    const on = !!uses[id];
+    wrap.classList.toggle('disabled', !on);
+    const inp = document.getElementById('in-' + id);
+    if (inp) inp.disabled = !on;
+  }
+}
+
+const RESOLVE = new Set(['freq', 'q', 'partials', 'tilt', 'focus', 'focusq', 'dx', 'dy', 'finger']);
+const RESHAPE = new Set(['aspect', 'inner']);   // changing these rebuilds the mode catalogue
+const SPECUI  = new Set(['freq', 'q', 'partials', 'focus', 'focusq']);
+const AUDIOUI = new Set(['freq', 'basehz', 'vol']);
+const UNITSUI = new Set(['psize', 'pthick']);
+let solveQueued = false;
+
+function clampP(d, v) {
+  if (!Number.isFinite(v)) v = d.value;
+  v = Math.min(d.max, Math.max(d.min, v));
+  if (d.step >= 1) v = Math.round(v);
+  return v;
+}
+
+// sliders and midi write the *base*; the lfos add on top of it in applyMod
+function setParam(id, value, updateSlider = true) {
+  const d = paramById[id];
+  if (!d) return;
+  if (id === 'freq' && snapOn) value = snapFreq(value);
+  value = clampP(d, value);
+  PB[id] = value;
+  const slider = document.getElementById('in-' + id);
+  if (updateSlider && slider) slider.value = value;
+  applyMod(id);
+}
+
+// resolve base + modulation into the live value, and invalidate what depends on it
+function applyMod(id, quiet) {
+  const d = paramById[id];
+  if (!d) return;
+  const v = clampP(d, PB[id] + (modOffset[id] || 0));
+  if (v === P[id]) { if (!quiet) refreshParamUI(id); return; }
+  P[id] = v;
+  if (!quiet) refreshParamUI(id);
+  if (RESHAPE.has(id)) { reshapeQueued = true; queueSolve(); }
+  else if (RESOLVE.has(id)) queueSolve();
+  if (SPECUI.has(id)) drawSpectrum();
+  if (AUDIOUI.has(id)) updateAudio();
+  if (UNITSUI.has(id)) updateUnits();
+  if (id === 'mix') splitGrains();
+  if (id === 'ghue' || id === 'gsat' || id === 'glit' || id === 'fhue') updateSwatches();
+}
+
+function refreshParamUI(id) {
+  const d = paramById[id], el = document.getElementById('val-' + id);
+  const text = d.fmt ? d.fmt(P[id]) : (P[id].toFixed(d.dp) + (d.unit || ''));
+  if (el) {
+    el.textContent = text;
+    el.classList.toggle('modulated', !!modOffset[id]);
+  }
+  // screen readers should hear the formatted value, not the raw number
+  const inp = document.getElementById('in-' + id);
+  if (inp) inp.setAttribute('aria-valuetext', text);
+}
+
+/* ================================================================
+   lfo — two free-running modulators, added on top of the base values
+   ================================================================ */
+
+const LFO_WAVES = ['sine', 'tri', 'ramp', 'saw', 'square', 's&h'];
+function lfoWave(ph, w, sh) {
+  ph = ph - Math.floor(ph);
+  switch (w) {
+    case 'tri':    return 1 - 4 * Math.abs(((ph + 0.25) % 1) - 0.5);
+    case 'ramp':   return 2 * ph - 1;
+    case 'saw':    return 1 - 2 * ph;
+    case 'square': return ph < 0.5 ? 1 : -1;
+    case 's&h':    return sh;
+    default:       return Math.sin(ph * TAU);
+  }
+}
+const LFO_DEF = { wave: 'sine', rate: 0.25, depth: 0.5, phase: 0, run: true };
+const lfos = [0, 1].map(i => Object.assign({
+  i, ph: i * 0.5, sh: Math.random() * 2 - 1, out: 0, assigns: [],
+}, LFO_DEF));
+
+// steppable targets are named, not numeric — they live in MAP_TARGETS
+const LFO_ENUMS = ['_geom', '_edge', '_disp'];
+const enumLast = {};
+let lastReshapeAt = 0, lfoUiAt = 0;
+
+function tickLfo(dt, now) {
+  const prev = modOffset;
+  const next = {}, enums = {};
+  let live = false;
+
+  for (const l of lfos) {
+    if (l.run) {
+      l.ph += l.rate * dt;
+      if (l.ph >= 1) { l.ph -= Math.floor(l.ph); l.sh = Math.random() * 2 - 1; }
+    }
+    l.out = lfoWave(l.ph + l.phase, l.wave, l.sh) * l.depth;
+    for (const a of l.assigns) {
+      if (!a.key) continue;
+      live = true;
+      const d = paramById[a.key];
+      if (d) next[a.key] = (next[a.key] || 0) + l.out * a.amt * 0.5 * (d.max - d.min);
+      else if (MAP_TARGETS[a.key] && MAP_TARGETS[a.key].steps)
+        enums[a.key] = (enums[a.key] || 0) + l.out * a.amt;
+    }
+  }
+
+  const hadAny = Object.keys(prev).length > 0;
+  if (!live && !hadAny) return;
+
+  // a reshape rebuilds the whole eigenmode catalogue — root-finding over bessel
+  // functions for a ring — so it must not run once per frame
+  const allowReshape = now - lastReshapeAt > 66;
+  let didReshape = false;
+  modOffset = next;
+
+  // the readout is text in the dom; repainting it at 60fps is pure waste
+  const doUi = now - lfoUiAt > 66;
+  if (doUi) lfoUiAt = now;
+
+  for (const k in prev) if (!(k in next)) applyMod(k, !doUi);      // released → fall back to base
+  for (const k in next) {
+    if (RESHAPE.has(k)) {
+      if (!allowReshape) continue;
+      didReshape = true;
+    }
+    applyMod(k, !doUi);
+  }
+  if (didReshape) lastReshapeAt = now;
+
+  for (const k in enums) {
+    const t = MAP_TARGETS[k], n = t.steps.length;
+    const i = Math.min(n - 1, Math.max(0, Math.floor((enums[k] * 0.5 + 0.5) * n)));
+    if (enumLast[k] !== i) { enumLast[k] = i; t.apply(i); }
+  }
+  if (doUi) updateLfoMeters();
+}
+
+function lfoTargetOptions() {
+  const out = [['', '— none —']];
+  Object.keys(paramById).forEach(k => out.push([k, paramById[k].label]));
+  LFO_ENUMS.forEach(k => out.push([k, MAP_TARGETS[k].label]));
+  return out;
+}
+
+function saveLfo() {
+  try {
+    localStorage.setItem('chladni.lfo', JSON.stringify(lfos.map(l => ({
+      wave: l.wave, rate: l.rate, depth: l.depth, phase: l.phase, run: l.run,
+      assigns: l.assigns.map(a => ({ key: a.key, amt: a.amt })),
+    }))));
+  } catch (e) {}
+}
+function loadLfo() {
+  try {
+    const raw = JSON.parse(localStorage.getItem('chladni.lfo') || 'null');
+    if (!Array.isArray(raw)) return;
+    raw.forEach((r, i) => {
+      const l = lfos[i];
+      if (!l || !r) return;
+      if (LFO_WAVES.includes(r.wave)) l.wave = r.wave;
+      if (Number.isFinite(r.rate))  l.rate  = Math.min(8, Math.max(0.01, r.rate));
+      if (Number.isFinite(r.depth)) l.depth = Math.min(1, Math.max(0, r.depth));
+      if (Number.isFinite(r.phase)) l.phase = Math.min(1, Math.max(0, r.phase));
+      l.run = r.run !== false;
+      l.assigns = (r.assigns || [])
+        .filter(a => a && (paramById[a.key] || LFO_ENUMS.includes(a.key)))
+        .map(a => ({ key: a.key, amt: Number.isFinite(a.amt) ? a.amt : 1 }));
+    });
+  } catch (e) {}
+}
+
+function updateLfoMeters() {
+  for (const l of lfos) {
+    const m = document.getElementById('lfo-meter-' + l.i);
+    if (m) m.style.left = ((l.out * 0.5 + 0.5) * 100) + '%';
+  }
+  const tag = document.getElementById('lfo-tag');
+  if (tag) {
+    const n = lfos.reduce((a, l) => a + l.assigns.filter(x => x.key).length, 0);
+    tag.textContent = n ? n + ' target' + (n > 1 ? 's' : '') : '';
+  }
+}
+
+// a small slider row that is not a P parameter — used for rate / depth / phase
+function lfoSlider(l, key, label, min, max, step, fmt) {
+  const wrap = document.createElement('div');
+  wrap.className = 'param';
+  const idp = 'lfo' + l.i + '-' + key;
+  wrap.innerHTML =
+    '<div class="row1"><label for="in-' + idp + '">' + label + '</label>' +
+    '<span class="val" id="val-' + idp + '"></span></div>' +
+    '<div class="row2"><input type="range" id="in-' + idp + '" min="' + min + '" max="' + max +
+    '" step="' + step + '" value="' + l[key] + '"></div>';
+  const inp = wrap.querySelector('input'), val = wrap.querySelector('.val');
+  const show = () => { val.textContent = fmt(l[key]); inp.setAttribute('aria-valuetext', fmt(l[key])); };
+  const set = v => { l[key] = v; inp.value = v; show(); saveLfo(); };
+  inp.title = 'double-click to reset to ' + fmt(LFO_DEF[key]);
+  inp.addEventListener('input', () => { l[key] = parseFloat(inp.value); show(); saveLfo(); });
+  inp.addEventListener('dblclick', () => set(LFO_DEF[key]));
+  show();
+  l['_set' + key] = set;                 // midi targets drive the same path
+  return wrap;
+}
+
+function buildLfoUI() {
+  const list = document.getElementById('lfo-list');
+  list.innerHTML = '';
+  for (const l of lfos) {
+    const box = document.createElement('div');
+    box.className = 'lfo';
+
+    const head = document.createElement('div');
+    head.className = 'lfo-head';
+    head.innerHTML = '<span class="lfo-num">LFO ' + (l.i + 1) + '</span>' +
+      '<span class="lfo-meter"><i id="lfo-meter-' + l.i + '"></i></span>';
+    const run = document.createElement('button');
+    run.className = 'lfo-run' + (l.run ? ' active' : '');
+    run.textContent = l.run ? 'run' : 'hold';
+    run.addEventListener('click', () => {
+      l.run = !l.run;
+      run.classList.toggle('active', l.run);
+      run.textContent = l.run ? 'run' : 'hold';
+      saveLfo();
+    });
+    l._runBtn = run;
+    head.appendChild(run);
+    box.appendChild(head);
+
+    const waves = document.createElement('div');
+    waves.className = 'lfo-wave';
+    LFO_WAVES.forEach(w => {
+      const b = document.createElement('button');
+      b.textContent = w;
+      b.className = l.wave === w ? 'active' : '';
+      b.addEventListener('click', () => {
+        l.wave = w;
+        waves.querySelectorAll('button').forEach(x => x.classList.toggle('active', x.textContent === w));
+        saveLfo();
+      });
+      waves.appendChild(b);
+    });
+    box.appendChild(waves);
+
+    box.appendChild(lfoSlider(l, 'rate',  'rate',  0.01, 8, 0.01, v => v.toFixed(2) + ' hz'));
+    box.appendChild(lfoSlider(l, 'depth', 'depth', 0,    1, 0.01, v => Math.round(v * 100) + '%'));
+    box.appendChild(lfoSlider(l, 'phase', 'phase', 0,    1, 0.01, v => Math.round(v * 360) + '°'));
+
+    const targets = document.createElement('div');
+    targets.className = 'lfo-targets';
+    box.appendChild(targets);
+    l._targets = targets;
+
+    const add = document.createElement('button');
+    add.className = 'lfo-add';
+    add.textContent = '+ add target';
+    add.addEventListener('click', () => {
+      l.assigns.push({ key: 'freq', amt: 1 });
+      renderLfoTargets(l); saveLfo(); updateLfoMeters();
+    });
+    box.appendChild(add);
+
+    list.appendChild(box);
+    renderLfoTargets(l);
+  }
+  updateLfoMeters();
+}
+
+function renderLfoTargets(l) {
+  const cont = l._targets;
+  cont.innerHTML = '';
+  const opts = lfoTargetOptions();
+  l.assigns.forEach((a, idx) => {
+    const row = document.createElement('div');
+    row.className = 'lfo-assign';
+
+    const sel = document.createElement('select');
+    sel.setAttribute('aria-label', 'LFO ' + (l.i + 1) + ' target ' + (idx + 1));
+    opts.forEach(([k, label]) => {
+      const o = document.createElement('option');
+      o.value = k; o.textContent = label;
+      if (k === a.key) o.selected = true;
+      sel.appendChild(o);
+    });
+    sel.addEventListener('change', () => {
+      releaseAssign(a.key);
+      a.key = sel.value;
+      saveLfo(); updateLfoMeters();
+    });
+    row.appendChild(sel);
+
+    const amt = document.createElement('input');
+    amt.type = 'number'; amt.step = '0.05'; amt.min = '-1'; amt.max = '1';
+    amt.value = a.amt;
+    amt.setAttribute('aria-label', 'amount');
+    amt.title = 'amount — fraction of the target\'s range, negative to invert';
+    amt.addEventListener('input', () => {
+      const v = parseFloat(amt.value);
+      if (Number.isFinite(v)) { a.amt = Math.min(1, Math.max(-1, v)); saveLfo(); }
+    });
+    amt.addEventListener('dblclick', () => { a.amt = 1; amt.value = 1; saveLfo(); });
+    row.appendChild(amt);
+
+    const del = document.createElement('button');
+    del.className = 'map-del'; del.textContent = '×'; del.title = 'remove target';
+    del.addEventListener('click', () => {
+      releaseAssign(a.key);
+      l.assigns.splice(idx, 1);
+      renderLfoTargets(l); saveLfo(); updateLfoMeters();
+    });
+    row.appendChild(del);
+
+    cont.appendChild(row);
+  });
+}
+
+// dropping a target must return the parameter to its base value straight away
+function releaseAssign(key) {
+  if (!key || !paramById[key]) return;
+  delete modOffset[key];
+  applyMod(key);
+}
+let reshapeQueued = false;
+function queueSolve() {
+  if (solveQueued) return;
+  solveQueued = true;
+  requestAnimationFrame(() => {
+    solveQueued = false;
+    if (reshapeQueued) { reshapeQueued = false; buildCatalogue(); computeFrame(); }
+    solveModes(); drawSpectrum(); updateTags();
+  });
+}
+
+const GEOM_LABEL = { rect: 'rect', disc: 'disc', ring: 'ring', tri: 'tri' };
+function updateTags() {
+  document.getElementById('plate-tag').textContent = GEOM_LABEL[geom] + ' · ' + edge;
+  document.getElementById('drive-tag').textContent = spec.length + 'p · ' + fmtHz(P.freq * hzPerUnit());
+  document.getElementById('mode-tag').textContent = active.length + ' active';
+  document.getElementById('grain-tag').textContent = medium;
+  const ft = document.getElementById('finger-tag');
+  if (ft) ft.textContent = fingers.length ? '(' + fingers.length + ')' : '';
+}
+
+// the calibration, in words — this is the control that makes size → pitch obvious
+function updateUnits() {
+  const el = document.getElementById('units-out');
+  if (el) {
+    const hz = hzPerUnit();
+    el.innerHTML = P.psize.toFixed(1) + ' cm ' + MATERIALS[material].label + ', ' +
+      P.pthick.toFixed(2) + ' mm → <b>' + hz.toFixed(1) + ' hz</b> per unit · drive at <b>' +
+      fmtHz(P.freq * hz) + '</b>';
+  }
+  updateModeList();
+  document.getElementById('drive-tag').textContent = spec.length + 'p · ' + fmtHz(P.freq * hzPerUnit());
+  if (realHz) updateAudio();
+}
+
+function updateSwatches() {
+  const a = document.getElementById('sw-coarse'), b = document.getElementById('sw-fine');
+  if (a) a.style.background = rgbCss(coarseRgb());
+  if (b) b.style.background = rgbCss(fineRgb());
+}
+
+function updateModeList() {
+  const el = document.getElementById('modelist');
+  if (!active.length) { el.innerHTML = '<span>no modes excited</span>'; return; }
+  const top = active.slice(0, 14), peak = top[0].tot || 1;
+  const hz = hzPerUnit();
+  el.innerHTML = top.map(m => {
+    const rel = m.tot / peak;
+    const bars = '█'.repeat(Math.max(1, Math.round(rel * 8))).padEnd(8, '·');
+    return '<button class="moderow' + (rel > 0.35 ? ' hot' : '') + '" data-f="' + m.F +
+      '" title="tune the drive to this mode">' +
+      m.label.padEnd(8, ' ').replace(/ /g, '&nbsp;') + ' f' + m.F.toFixed(1).padStart(7, ' ').replace(/ /g, '&nbsp;') +
+      '&nbsp;&nbsp;' + bars + '&nbsp;&nbsp;<span class="hz">' + fmtHz(m.F * hz) + '</span></button>';
+  }).join('');
+}
+// clicking a mode parks the drive on it — the fastest way to find a figure
+document.getElementById('modelist').addEventListener('click', e => {
+  const b = e.target.closest('.moderow');
+  if (!b) return;
+  const f = parseFloat(b.dataset.f);
+  if (Number.isFinite(f)) setParam('freq', f);
+});
+
+/* ---- spectrum readout ---- */
+const specCv = document.getElementById('spectrum');
+const sctx = specCv.getContext('2d');
+function drawSpectrum() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const w = specCv.clientWidth || 256, h = 64;
+  specCv.width = w * dpr; specCv.height = h * dpr;
+  sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  sctx.clearRect(0, 0, w, h);
+
+  const fmax = Math.max(160, P.freq * (spec.length ? spec[spec.length - 1].n : 1) * 1.1);
+
+  // mode frequencies as faint ticks — you can see partials hunting for resonances
+  sctx.strokeStyle = 'rgba(255,255,255,0.10)';
+  sctx.beginPath();
+  const seen = new Set();
+  for (const m of catalogue) {
+    const key = m.F.toFixed(3);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (m.F > fmax) continue;
+    const x = m.F / fmax * w;
+    sctx.moveTo(x, h - 10); sctx.lineTo(x, h - 4);
+  }
+  sctx.stroke();
+
+  sctx.strokeStyle = 'rgba(255,255,255,0.16)';
+  sctx.beginPath(); sctx.moveTo(0, h - 10.5); sctx.lineTo(w, h - 10.5); sctx.stroke();
+
+  const amax = Math.max(...spec.map(p => p.a), 1e-6);
+  for (const p of spec) {
+    if (p.f > fmax) continue;
+    const x = p.f / fmax * w, hh = (p.a / amax) * (h - 16);
+    sctx.strokeStyle = '#e8c26a';
+    sctx.lineWidth = 1.5;
+    sctx.beginPath(); sctx.moveTo(x, h - 11); sctx.lineTo(x, h - 11 - hh); sctx.stroke();
+  }
+  sctx.fillStyle = 'rgba(124,132,148,0.9)';
+  sctx.font = '8px ui-monospace, monospace';
+  sctx.fillText('partials vs. modal frequencies →', 2, 9);
+}
+
+function drawStatus() {
+  const el = document.getElementById('status');
+  const top = active.length ? active[0].label + ' f' + active[0].F.toFixed(1) : '—';
+  el.innerHTML =
+    '<span class="k">f</span> ' + P.freq.toFixed(2) + ' (' + fmtHz(P.freq * hzPerUnit()) + ')' +
+    ' · <span class="k">q</span> ' + P.q.toFixed(0) +
+    ' · <span class="k">drive</span> ' + P.dx.toFixed(2) + ',' + P.dy.toFixed(2) +
+    ' · <span class="k">dominant</span> ' + top +
+    ' · <span class="k">grains</span> ' + grainCount +
+    (paused ? ' · <span class="paused">paused</span>' : '');
+}
+
+/* ---- plate interaction: drag the excitation point ---- */
+let dragging = false;
+function pointerToPlate(e) {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const px = e.clientX * dpr, py = (innerHeight - e.clientY) * dpr;
+  return [(px - origin[0]) / side, (py - origin[1]) / side];
+}
+canvas.addEventListener('pointerdown', e => {
+  const [x, y] = pointerToPlate(e);
+  if (x < -0.1 || x > 1.1 || y < -0.1 || y > 1.1) return;
+  if (e.shiftKey) { toggleFinger(Math.min(1, Math.max(0, x)), Math.min(1, Math.max(0, y))); return; }
+  dragging = true; canvas.setPointerCapture(e.pointerId);
+  setParam('dx', Math.min(1, Math.max(0, x)));
+  setParam('dy', Math.min(1, Math.max(0, y)));
+});
+
+function toggleFinger(x, y) {
+  const i = fingers.findIndex(f => Math.hypot(f.x - x, f.y - y) < 0.05);
+  if (i >= 0) fingers.splice(i, 1);
+  else {
+    if (fingers.length >= 4) fingers.shift();       // oldest gives way
+    fingers.push({ x, y });
+  }
+  queueSolve(); updateTags();
+}
+document.getElementById('btn-clearfingers').addEventListener('click', () => {
+  if (!fingers.length) return;
+  fingers = []; queueSolve(); updateTags();
+});
+canvas.addEventListener('pointermove', e => {
+  if (!dragging) return;
+  const [x, y] = pointerToPlate(e);
+  setParam('dx', Math.min(1, Math.max(0, x)));
+  setParam('dy', Math.min(1, Math.max(0, y)));
+});
+canvas.addEventListener('pointerup', e => { dragging = false; canvas.releasePointerCapture(e.pointerId); });
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  if (snapOn && modeFreqs.length) {
+    // snapped, a proportional nudge would land on the same mode — step the ladder instead
+    const i = modeFreqs.indexOf(snapFreq(PB.freq));
+    const j = Math.min(modeFreqs.length - 1, Math.max(0, i + (e.deltaY > 0 ? -1 : 1)));
+    setParam('freq', modeFreqs[j]);
+  } else {
+    setParam('freq', PB.freq * (e.deltaY > 0 ? 0.985 : 1.015));
+  }
+}, { passive: false });
+
+/* ---- selects and toggles ---- */
+
+// only offer the edge conditions a geometry can actually represent
+function updateEdgeButtons() {
+  const allowed = EDGES_FOR[geom];
+  if (!allowed.includes(edge)) edge = allowed[0];
+  document.querySelectorAll('[data-edge]').forEach(b => {
+    const ok = allowed.includes(b.dataset.edge);
+    b.disabled = !ok;
+    b.style.display = ok ? '' : 'none';
+    b.classList.toggle('active', ok && b.dataset.edge === edge);
+  });
+  // aspect only means anything on a rectangle, inner radius only on a ring
+  const show = (id, on) => {
+    const el = document.getElementById('param-' + id);
+    if (el) el.style.display = on ? '' : 'none';
+  };
+  show('aspect', geom === 'rect');
+  show('inner', geom === 'ring');
+}
+
+function changeGeometry(g) {
+  geom = g;
+  updateEdgeButtons();
+  buildCatalogue(); solveModes(); scatterGrains();
+  computeFrame(); drawSpectrum(); updateTags();
+}
+document.getElementById('geom').addEventListener('change', e => changeGeometry(e.target.value));
+document.getElementById('wave').addEventListener('change', e => {
+  waveform = e.target.value;
+  updateDriveEnable();
+  solveModes(); drawSpectrum(); updateTags();
+});
+document.getElementById('palette').addEventListener('change', e => { palette = parseInt(e.target.value, 10); });
+
+function setEdge(e) {
+  if (e === edge) return;
+  edge = e;
+  updateEdgeButtons();
+  buildCatalogue(); solveModes(); drawSpectrum(); updateTags();
+}
+function setDisp(d) {
+  if (d === disp) return;
+  disp = d;
+  document.querySelectorAll('[data-disp]').forEach(x => x.classList.toggle('active', x.dataset.disp === d));
+  buildCatalogue(); solveModes(); drawSpectrum(); updateTags();
+}
+function setMedium(m) {
+  medium = m;
+  document.querySelectorAll('[data-med]').forEach(x => x.classList.toggle('active', x.dataset.med === m));
+  splitGrains();
+  // the fine fraction only means anything when both populations are on the plate
+  const wrap = document.getElementById('param-mix');
+  if (wrap) wrap.style.display = m === 'both' ? '' : 'none';
+  updateTags();
+}
+function setField(n) {
+  fieldMode = n;
+  document.querySelectorAll('[data-field]').forEach(x => x.classList.toggle('active', +x.dataset.field === n));
+}
+function setMaterial(m) {
+  material = m;
+  document.getElementById('material').value = m;
+  updateUnits();
+}
+
+document.querySelectorAll('[data-edge]').forEach(b => b.addEventListener('click', () => {
+  if (b.disabled) return;
+  setEdge(b.dataset.edge);
+}));
+document.querySelectorAll('[data-disp]').forEach(b => b.addEventListener('click', () => setDisp(b.dataset.disp)));
+document.querySelectorAll('[data-med]').forEach(b => b.addEventListener('click', () => setMedium(b.dataset.med)));
+document.querySelectorAll('[data-field]').forEach(b => b.addEventListener('click', () => setField(parseInt(b.dataset.field, 10))));
+document.getElementById('material').addEventListener('change', e => setMaterial(e.target.value));
+
+const btnSnap = document.getElementById('btn-snap');
+btnSnap.addEventListener('click', () => {
+  snapOn = !snapOn;
+  btnSnap.classList.toggle('active', snapOn);
+  if (snapOn) setParam('freq', PB.freq);        // land on the nearest resonance at once
+});
+const btnRealHz = document.getElementById('btn-realhz');
+btnRealHz.addEventListener('click', () => {
+  realHz = !realHz;
+  btnRealHz.classList.toggle('active', realHz);
+  // the pitch-per-unit slider is dead while the real calibration drives the tone
+  const wrap = document.getElementById('param-basehz');
+  if (wrap) wrap.classList.toggle('disabled', realHz);
+  updateAudio();
+});
+
+const btnGrains = document.getElementById('btn-grains');
+btnGrains.addEventListener('click', () => { showGrains = !showGrains; btnGrains.classList.toggle('active', showGrains); });
+const btnDriver = document.getElementById('btn-driver');
+btnDriver.addEventListener('click', () => { showDrive = !showDrive; btnDriver.classList.toggle('active', showDrive); });
+document.getElementById('btn-reseed').addEventListener('click', scatterGrains);
+
+/* ---- colours ---- */
+document.getElementById('col-canvas').addEventListener('input', e => { colCanvas = e.target.value; });
+
+const btnPause = document.getElementById('btn-pause');
+btnPause.addEventListener('click', () => { paused = !paused; btnPause.classList.toggle('armed', paused); btnPause.textContent = paused ? 'resume' : 'pause'; });
+
+document.getElementById('paneltoggle').addEventListener('click', () => {
+  document.body.classList.toggle('panel-hidden');
+  document.getElementById('panel').classList.toggle('hidden');
+  resize();
+});
+
+/* ---- folding info panels and sections ---- */
+document.querySelectorAll('.infobtn').forEach(b => b.addEventListener('click', e => {
+  e.stopPropagation();
+  const el = document.getElementById(b.dataset.info);
+  if (!el) return;
+  const open = el.classList.toggle('open');
+  b.classList.toggle('open', open);
+}));
+document.querySelectorAll('.section.fold > h2').forEach(h => h.addEventListener('click', () => {
+  h.parentElement.classList.toggle('collapsed');
+}));
+
+/* ---- presets ---- */
+const presets = [
+  { name: 'the classic cross',    geom: 'rect', edge: 'free',      wave: 'sine',   freq: 5,    q: 90,  dx: 0.5,  dy: 0.0,  partials: 1 },
+  { name: 'concentric square',    geom: 'rect', edge: 'free',      wave: 'sine',   freq: 8,    q: 120, dx: 0.5,  dy: 0.5,  partials: 1 },
+  { name: 'lattice (3,2)',        geom: 'rect', edge: 'free',      wave: 'sine',   freq: 13,   q: 110, dx: 0.62, dy: 0.38, partials: 1 },
+  // f=25 is fourfold degenerate — (5,0) (0,5) (4,3) (3,4) all resonate together,
+  // and the drive point alone decides how they combine
+  { name: 'degenerate quartet',   geom: 'rect', edge: 'free',      wave: 'sine',   freq: 25,   q: 120, dx: 0.62, dy: 0.38, partials: 1 },
+  { name: 'fine weave (7,5)',     geom: 'rect', edge: 'free',      wave: 'sine',   freq: 74,   q: 150, dx: 0.62, dy: 0.38, partials: 1 },
+  { name: 'golden rectangle',     geom: 'rect', edge: 'free',      wave: 'sine',   freq: 30,   q: 130, dx: 0.6,  dy: 0.4,  partials: 1, aspect: 1.618 },
+  { name: 'tall panel',           geom: 'rect', edge: 'free',      wave: 'sine',   freq: 46,   q: 140, dx: 0.5,  dy: 0.3,  partials: 1, aspect: 0.38 },
+  { name: 'clamped plate',        geom: 'rect', edge: 'clamped',   wave: 'sine',   freq: 26,   q: 130, dx: 0.4,  dy: 0.6,  partials: 1 },
+  { name: 'clamped — fine',       geom: 'rect', edge: 'clamped',   wave: 'sine',   freq: 88,   q: 150, dx: 0.45, dy: 0.55, partials: 1 },
+  { name: 'held two edges',       geom: 'rect', edge: 'mixed',     wave: 'sine',   freq: 34,   q: 130, dx: 0.5,  dy: 0.18, partials: 1 },
+  { name: 'square + odd harm.',   geom: 'rect', edge: 'free',      wave: 'square', freq: 5,    q: 80,  dx: 0.62, dy: 0.38, partials: 7 },
+  { name: 'saw smear',            geom: 'rect', edge: 'free',      wave: 'saw',    freq: 6.5,  q: 45,  dx: 0.62, dy: 0.38, partials: 8 },
+  { name: 'blurred / low q',      geom: 'rect', edge: 'free',      wave: 'sine',   freq: 33,   q: 6,   dx: 0.62, dy: 0.38, partials: 1 },
+  { name: 'corner drive — all',   geom: 'rect', edge: 'free',      wave: 'saw',    freq: 4,    q: 60,  dx: 0.0,  dy: 0.0,  partials: 8 },
+  { name: 'supported drumhead',   geom: 'rect', edge: 'supported', wave: 'sine',   freq: 20,   q: 100, dx: 0.35, dy: 0.55, partials: 1 },
+  { name: 'disc — 3 diameters',   geom: 'disc', edge: 'free',      wave: 'sine',   freq: 6.2,  q: 120, dx: 0.85, dy: 0.5,  partials: 1 },
+  { name: 'disc — rings',         geom: 'disc', edge: 'free',      wave: 'sine',   freq: 10.4, q: 130, dx: 0.5,  dy: 0.5,  partials: 1 },
+  { name: 'disc — rosette',       geom: 'disc', edge: 'free',      wave: 'sine',   freq: 33,   q: 140, dx: 0.78, dy: 0.62, partials: 1 },
+  { name: 'disc — clamped rim',   geom: 'disc', edge: 'clamped',   wave: 'sine',   freq: 20,   q: 140, dx: 0.7,  dy: 0.5,  partials: 1 },
+  { name: 'ring — narrow',        geom: 'ring', edge: 'supported', wave: 'sine',   freq: 40,   q: 140, dx: 0.82, dy: 0.5,  partials: 1, inner: 0.6 },
+  { name: 'ring — wide',          geom: 'ring', edge: 'supported', wave: 'sine',   freq: 22,   q: 140, dx: 0.8,  dy: 0.56, partials: 1, inner: 0.25 },
+  // triangle frequencies land on F = (4√3/9)(p²+pq+q²)
+  { name: 'triangle — fundamental', geom: 'tri', edge: 'supported', wave: 'sine', freq: 2.31,  q: 140, dx: 0.5,  dy: 0.33, partials: 1 },
+  { name: 'triangle — hex lattice', geom: 'tri', edge: 'supported', wave: 'sine', freq: 14.63, q: 140, dx: 0.62, dy: 0.34, partials: 1 },
+  { name: 'triangle — rosette',     geom: 'tri', edge: 'supported', wave: 'sine', freq: 30.02, q: 150, dx: 0.68, dy: 0.28, partials: 1 },
+  { name: 'triangle — fine',        geom: 'tri', edge: 'supported', wave: 'sine', freq: 51.58, q: 150, dx: 0.58, dy: 0.42, partials: 1 },
+];
+function applyPreset(p) {
+  geom = p.geom; edge = p.edge; waveform = p.wave;
+  if (snapOn) { snapOn = false; btnSnap.classList.remove('active'); }   // presets name exact frequencies
+  document.getElementById('geom').value = geom;
+  document.getElementById('wave').value = waveform;
+  // shape params must land before the catalogue is built from them
+  if (p.aspect !== undefined) setParam('aspect', p.aspect); else if (geom === 'rect') setParam('aspect', 1);
+  if (p.inner !== undefined) setParam('inner', p.inner);
+  updateEdgeButtons();
+  updateDriveEnable();
+  buildCatalogue();
+  ['freq', 'q', 'dx', 'dy', 'partials'].forEach(k => { if (p[k] !== undefined) setParam(k, p[k]); });
+  solveModes(); scatterGrains(); computeFrame(); drawSpectrum(); updateTags();
+}
+function buildPresets() {
+  const sel = document.getElementById('preset');
+  presets.forEach((p, i) => { const o = document.createElement('option'); o.value = i; o.textContent = p.name; sel.appendChild(o); });
+  sel.addEventListener('change', () => applyPreset(presets[parseInt(sel.value, 10)]));
+}
+
+document.getElementById('btn-rand').addEventListener('click', () => {
+  applyPreset(presets[(Math.random() * presets.length) | 0]);
+  setParam('freq', 3 + Math.random() * 80);
+  setParam('dx', Math.random()); setParam('dy', Math.random());
+});
+
+/* ================================================================
+   midi — device selector + assignable cc mapping list
+   ================================================================ */
+
+// every slider is a mapping target, plus a few discrete toggles
+const MAP_TARGETS = {};
+Object.keys(paramById).forEach(id => {
+  const d = paramById[id];
+  MAP_TARGETS[id] = { label: d.label, min: d.min, max: d.max, step: d.step,
+                      apply: v => setParam(id, v) };
+});
+/* stepped targets: a 0–127 sweep walks a list of discrete settings. each one
+   rebuilds the mode catalogue, so they only fire when the index actually moves. */
+const GEOM_STEPS = ['rect', 'disc', 'ring', 'tri'];
+const EDGE_STEPS = ['free', 'supported', 'clamped', 'mixed'];
+const DISP_STEPS = ['plate', 'membrane'];
+
+MAP_TARGETS['_geom'] = { label: 'plate shape', steps: GEOM_STEPS,
+  apply: i => {
+    const g = GEOM_STEPS[i];
+    if (g === geom) return;
+    document.getElementById('geom').value = g;
+    changeGeometry(g);
+  } };
+MAP_TARGETS['_edge'] = { label: 'edge condition', steps: EDGE_STEPS,
+  apply: i => {
+    const allowed = EDGES_FOR[geom];
+    let e = EDGE_STEPS[i];
+    // a disc has no "mixed" — fold the sweep onto whatever this shape can do
+    if (!allowed.includes(e)) e = allowed[Math.min(allowed.length - 1, Math.floor(i / EDGE_STEPS.length * allowed.length))];
+    setEdge(e);
+  } };
+MAP_TARGETS['_disp'] = { label: 'dispersion', steps: DISP_STEPS,
+  apply: i => setDisp(DISP_STEPS[i]) };
+MAP_TARGETS['_material'] = { label: 'material', steps: MAT_KEYS,
+  apply: i => { if (MAT_KEYS[i] !== material) setMaterial(MAT_KEYS[i]); } };
+MAP_TARGETS['_med3'] = { label: 'medium (sand / powder / both)', steps: ['sand', 'powder', 'both'],
+  apply: i => { const m = ['sand', 'powder', 'both'][i]; if (m !== medium) setMedium(m); } };
+MAP_TARGETS['_field'] = { label: 'field (off / motion / rms)', steps: ['0', '1', '2'],
+  apply: i => { if (i !== fieldMode) setField(i); } };
+
+MAP_TARGETS['_medium'] = { label: 'medium (sand / powder)', toggle: true,
+  apply: on => setMedium(on ? 'powder' : 'sand') };
+MAP_TARGETS['_grains'] = { label: 'grains on / off', toggle: true,
+  apply: on => { if (on !== showGrains) document.getElementById('btn-grains').click(); } };
+MAP_TARGETS['_pause'] = { label: 'pause', toggle: true,
+  apply: on => { if (on !== paused) document.getElementById('btn-pause').click(); } };
+MAP_TARGETS['_snap'] = { label: 'snap to resonance', toggle: true,
+  apply: on => { if (on !== snapOn) btnSnap.click(); } };
+MAP_TARGETS['_realhz'] = { label: 'audio: real hz', toggle: true,
+  apply: on => { if (on !== realHz) btnRealHz.click(); } };
+MAP_TARGETS['_driver'] = { label: 'driver dot on / off', toggle: true,
+  apply: on => { if (on !== showDrive) document.getElementById('btn-driver').click(); } };
+MAP_TARGETS['_scatter'] = { label: 'scatter grains (trigger)', toggle: true,
+  apply: on => { if (on) scatterGrains(); } };
+MAP_TARGETS['_fingers'] = { label: 'clear fingers (trigger)', toggle: true,
+  apply: on => { if (on && fingers.length) { fingers = []; queueSolve(); updateTags(); } } };
+
+// the modulators are themselves controllable
+lfos.forEach(l => {
+  MAP_TARGETS['_lfo' + l.i + 'rate']  = { label: 'lfo ' + (l.i + 1) + ' rate',  min: 0.01, max: 8, step: 0.01,
+                                          apply: v => l._setrate(v) };
+  MAP_TARGETS['_lfo' + l.i + 'depth'] = { label: 'lfo ' + (l.i + 1) + ' depth', min: 0, max: 1, step: 0.01,
+                                          apply: v => l._setdepth(v) };
+  MAP_TARGETS['_lfo' + l.i + 'phase'] = { label: 'lfo ' + (l.i + 1) + ' phase', min: 0, max: 1, step: 0.01,
+                                          apply: v => l._setphase(v) };
+  MAP_TARGETS['_lfo' + l.i + 'run']   = { label: 'lfo ' + (l.i + 1) + ' run / hold', toggle: true,
+                                          apply: on => { if (on !== l.run) l._runBtn.click(); } };
+});
+
+let midiAccess = null, midiInputId = '', midiMappings = [], mapLearnId = null, _mapSeq = 1;
+
+function saveMidi() {
+  try {
+    localStorage.setItem('chladni.midi', JSON.stringify({
+      input: midiInputId,
+      maps: midiMappings.map(m => ({ key: m.key, cc: m.cc, lo: m.lo, hi: m.hi })),
+    }));
+  } catch (e) {}
+}
+function loadMidi() {
+  try {
+    const s = JSON.parse(localStorage.getItem('chladni.midi') || '{}');
+    midiInputId = s.input || '';
+    midiMappings = (s.maps || [])
+      .filter(m => MAP_TARGETS[m.key])
+      .map(m => ({ id: _mapSeq++, key: m.key, cc: m.cc ?? null, lo: m.lo, hi: m.hi,
+                   target: undefined, smooth: undefined }));
+  } catch (e) { midiMappings = []; }
+}
+
+function setMidiStatus(cls, text) {
+  const dot = document.getElementById('midi-dot');
+  dot.className = 'midi-dot' + (cls ? ' ' + cls : '');
+  document.getElementById('midi-status-text').textContent = text;
+}
+let _dotTimer = null;
+function flashMidi() {
+  const dot = document.getElementById('midi-dot');
+  dot.classList.add('active');
+  clearTimeout(_dotTimer);
+  _dotTimer = setTimeout(() => dot.classList.remove('active'), 110);
+}
+
+const CC_NAMES = { 0xb0: 'CC', 0x90: 'note on', 0x80: 'note off', 0xe0: 'pitch', 0xd0: 'aftertouch' };
+function onMidiMessage(e, inputId) {
+  // an empty selection listens to every device
+  if (midiInputId && inputId !== midiInputId) return;
+  const [s, d1, d2] = e.data;
+  const type = s & 0xf0, ch = (s & 0x0f) + 1;
+  if (type === 0xf0 || type === 0xf8) return;                   // ignore clock / sysex
+
+  document.getElementById('midi-monitor').innerHTML =
+    'ch <b>' + ch + '</b> · ' + (CC_NAMES[type] || ('0x' + type.toString(16))) +
+    ' <b>' + d1 + '</b> = <b>' + d2 + '</b>';
+  flashMidi();
+
+  if (type !== 0xb0) return;
+  if (mapLearnId !== null) {
+    const m = midiMappings.find(x => x.id === mapLearnId);
+    if (m) m.cc = d1;
+    mapLearnId = null;
+    saveMidi(); renderMapList();
+    return;
+  }
+  const v01 = d2 / 127;
+  midiMappings.forEach(m => {
+    if (m.cc !== d1) return;
+    const t = MAP_TARGETS[m.key];
+    if (!t) return;
+    if (t.toggle) { t.apply(d2 > 63); }
+    else if (t.steps) { t.apply(Math.min(t.steps.length - 1, Math.floor(v01 * t.steps.length))); }
+    else {
+      m.target = v01;                       // tickMidi slews toward this
+      if (m.smooth === undefined) m.smooth = v01;
+    }
+    const ind = document.getElementById('map-ind-' + m.id);
+    if (ind) { ind.classList.add('active'); clearTimeout(ind._t); ind._t = setTimeout(() => ind.classList.remove('active'), 120); }
+  });
+}
+
+// interpolate 7-bit steps so sweeps don't stair-step
+function tickMidi(dt) {
+  const ms = P.slew;
+  const k = ms <= 1 ? 1 : 1 - Math.exp(-dt * 1000 / ms);
+  midiMappings.forEach(m => {
+    if (m.target === undefined) return;
+    const t = MAP_TARGETS[m.key];
+    if (!t || t.toggle || t.steps) return;
+    m.smooth += (m.target - m.smooth) * k;
+    if (Math.abs(m.target - m.smooth) < 1e-5) m.smooth = m.target;
+    t.apply(m.lo + m.smooth * (m.hi - m.lo));
+  });
+}
+
+function attachAllInputs() {
+  if (!midiAccess) return;
+  midiAccess.inputs.forEach(inp => { inp.onmidimessage = e => onMidiMessage(e, inp.id); });
+}
+function populateInputs() {
+  const sel = document.getElementById('midi-input-select');
+  const prev = midiInputId;
+  sel.innerHTML = '<option value="">— all inputs —</option>';
+  let n = 0;
+  if (midiAccess) midiAccess.inputs.forEach(inp => {
+    const o = document.createElement('option');
+    o.value = inp.id; o.textContent = inp.name;
+    sel.appendChild(o); n++;
+  });
+  sel.value = prev && [...sel.options].some(o => o.value === prev) ? prev : '';
+  midiInputId = sel.value;
+  document.getElementById('midi-tag').textContent = n ? n + ' in' : '';
+  setMidiStatus(n ? 'connected' : 'error', n ? (n + ' device' + (n > 1 ? 's' : '')) : 'no inputs found');
+}
+
+/* ---- mapping list ui ---- */
+function addMapping(key) {
+  const k = key || 'freq', t = MAP_TARGETS[k];
+  midiMappings.push({ id: _mapSeq++, key: k, cc: null, lo: t.min ?? 0, hi: t.max ?? 1,
+                      target: undefined, smooth: undefined });
+  saveMidi(); renderMapList();
+}
+function renderMapList() {
+  const list = document.getElementById('map-list');
+  list.innerHTML = '';
+  if (!midiMappings.length) {
+    list.innerHTML = '<div class="hint open" style="margin:0 0 6px">no mappings yet.</div>';
+  }
+  midiMappings.forEach(m => {
+    const t = MAP_TARGETS[m.key];
+    const row = document.createElement('div');
+    row.className = 'map-row' + (mapLearnId === m.id ? ' learning' : '');
+
+    const sel = document.createElement('select');
+    sel.className = 'map-target';
+    Object.keys(MAP_TARGETS).forEach(k => {
+      const o = document.createElement('option');
+      o.value = k; o.textContent = MAP_TARGETS[k].label;
+      if (k === m.key) o.selected = true;
+      sel.appendChild(o);
+    });
+    sel.addEventListener('change', e => {
+      m.key = e.target.value;
+      const nt = MAP_TARGETS[m.key];
+      m.lo = nt.min ?? 0; m.hi = nt.max ?? 1;
+      m.smooth = undefined; m.target = undefined;
+      saveMidi(); renderMapList();
+    });
+    row.appendChild(sel);
+
+    const ind = document.createElement('div');
+    ind.className = 'map-ind'; ind.id = 'map-ind-' + m.id;
+    row.appendChild(ind);
+
+    const learn = document.createElement('button');
+    learn.className = 'map-cc-btn' + (mapLearnId === m.id ? ' learning' : (m.cc !== null ? ' bound' : ''));
+    learn.textContent = mapLearnId === m.id ? 'learn…' : (m.cc !== null ? 'cc ' + m.cc : 'learn');
+    learn.addEventListener('click', () => {
+      mapLearnId = (mapLearnId === m.id) ? null : m.id;
+      renderMapList();
+    });
+    row.appendChild(learn);
+
+    if (!t.toggle && !t.steps) {
+      const range = document.createElement('div');
+      range.className = 'map-range';
+      const mk = (get, set, dflt) => {
+        const i = document.createElement('input');
+        i.type = 'number'; i.value = +get().toFixed(4); i.step = t.step || 'any';
+        i.addEventListener('input', e => {
+          const v = parseFloat(e.target.value);
+          if (Number.isFinite(v)) { set(v); saveMidi(); }
+        });
+        i.title = 'double-click to reset to the parameter\'s own limit';
+        i.addEventListener('dblclick', () => { set(dflt); i.value = dflt; saveMidi(); });
+        return i;
+      };
+      range.appendChild(mk(() => m.lo, v => m.lo = v, t.min ?? 0));
+      const d = document.createElement('span'); d.textContent = '→'; range.appendChild(d);
+      range.appendChild(mk(() => m.hi, v => m.hi = v, t.max ?? 1));
+      row.appendChild(range);
+    }
+
+    const del = document.createElement('button');
+    del.className = 'map-del'; del.textContent = '×'; del.title = 'remove';
+    del.addEventListener('click', () => {
+      midiMappings = midiMappings.filter(x => x.id !== m.id);
+      if (mapLearnId === m.id) mapLearnId = null;
+      saveMidi(); renderMapList();
+    });
+    row.appendChild(del);
+
+    list.appendChild(row);
+  });
+}
+
+document.getElementById('midi-input-select').addEventListener('change', e => {
+  midiInputId = e.target.value; saveMidi();
+});
+document.getElementById('map-add').addEventListener('click', () => addMapping());
+document.getElementById('btn-midiclear').addEventListener('click', () => {
+  midiMappings = []; mapLearnId = null; saveMidi(); renderMapList();
+});
+
+loadMidi();
+renderMapList();
+
+// web midi requires a secure context — opening this file straight from disk
+// (file://) silently blocks it, which looks exactly like "midi doesn't work"
+if (!window.isSecureContext) {
+  setMidiStatus('error', 'needs https or localhost — file:// blocks midi');
+  document.getElementById('midi-monitor').innerHTML =
+    'serve the folder instead: <b>python3 -m http.server</b>, then open via localhost.';
+} else if (!navigator.requestMIDIAccess) {
+  setMidiStatus('error', 'web midi needs chrome / edge');
+} else {
+  navigator.requestMIDIAccess({ sysex: false }).then(access => {
+    midiAccess = access;
+    populateInputs();
+    attachAllInputs();
+    // devices plugged in after load must still bind
+    access.onstatechange = () => { populateInputs(); attachAllInputs(); };
+  }).catch(err => {
+    setMidiStatus('error', 'access denied' + (err && err.name ? ' (' + err.name + ')' : ''));
+    document.getElementById('midi-monitor').textContent =
+      'the browser refused midi access — check site permissions for this origin.';
+  });
+}
+
+/* ================================================================
+   audio — the drive signal itself, as a periodic wave
+   ================================================================ */
+
+let actx = null, osc = null, gainNode = null, audioOn = false;
+
+function audioHz() {
+  const hz = realHz ? P.freq * hzPerUnit() : P.basehz * P.freq;
+  return Math.min(12000, Math.max(20, hz));
+}
+
+// rebuild the oscillator's waveform from the same partial set feeding the plate
+function buildWave() {
+  if (!actx || !osc) return;
+  let maxN = 1;
+  for (const p of spec) if (p.n > maxN) maxN = p.n;
+  const N = maxN + 1;
+  const real = new Float32Array(N), imag = new Float32Array(N);
+  for (const p of spec) {
+    if (p.n >= N) continue;
+    real[p.n] = p.a * Math.cos(p.ph);
+    imag[p.n] = -p.a * Math.sin(p.ph);
+  }
+  try { osc.setPeriodicWave(actx.createPeriodicWave(real, imag)); } catch (e) {}
+}
+
+function updateAudio() {
+  const tag = document.getElementById('audio-tag');
+  if (tag) tag.textContent = audioOn ? audioHz().toFixed(0) + ' hz' : '';
+  if (!actx || !osc) return;
+  osc.frequency.setTargetAtTime(audioHz(), actx.currentTime, 0.02);
+  gainNode.gain.setTargetAtTime(audioOn ? P.vol * 0.3 : 0, actx.currentTime, 0.03);
+}
+
+function toggleAudio() {
+  const btn = document.getElementById('btn-audio');
+  if (!actx) {
+    // must be created from a user gesture
+    actx = new (window.AudioContext || window.webkitAudioContext)();
+    gainNode = actx.createGain();
+    gainNode.gain.value = 0;
+    gainNode.connect(actx.destination);
+    osc = actx.createOscillator();
+    osc.connect(gainNode);
+    osc.frequency.value = audioHz();
+    osc.start();
+    buildWave();
+  }
+  if (actx.state === 'suspended') actx.resume();
+  audioOn = !audioOn;
+  btn.classList.toggle('active', audioOn);
+  btn.textContent = audioOn ? 'output on' : 'output off';
+  updateAudio();
+}
+document.getElementById('btn-audio').addEventListener('click', toggleAudio);
+
+/* ---- export ---- */
+// grab just the framed region, in canvas (top-down) coordinates
+function frameToCanvas() {
+  const [fx, fy, fw, fh] = frame_;
+  return { sx: fx, sy: H - fy - fh, sw: fw, sh: fh };
+}
+document.getElementById('btn-png').addEventListener('click', () => {
+  const { sx, sy, sw, sh } = frameToCanvas();
+  const c2 = document.createElement('canvas');
+  c2.width = sw; c2.height = sh;
+  c2.getContext('2d').drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
+  const a = document.createElement('a');
+  a.download = 'chladni-' + Date.now() + '.png';
+  a.href = c2.toDataURL('image/png');
+  a.click();
+});
+
+let recorder = null, recChunks = [], recStart = 0, recTimer = null;
+const btnRec = document.getElementById('btn-rec');
+
+function updateExportTag() {
+  const a = aspectValue(), r = parseInt(document.getElementById('capres').value, 10) || 0;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const h = r || Math.round(Math.max(1, innerHeight) * dpr);
+  const ar = a || (Math.max(1, innerWidth) / Math.max(1, innerHeight));
+  document.getElementById('export-tag').textContent =
+    (a || r) ? (Math.round(h * ar / 2) * 2) + '×' + (Math.round(h / 2) * 2) : 'window';
+}
+
+btnRec.addEventListener('click', () => {
+  if (recorder) { recorder.stop(); return; }
+
+  // render off-screen at the requested frame size so the recording is not
+  // limited by the window, and so no letterbox bars end up in the file
+  const a = aspectValue(), r = parseInt(document.getElementById('capres').value, 10) || 0;
+  if (a || r) {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const h = r || Math.round(Math.max(1, innerHeight) * dpr);
+    const ar = a || (Math.max(1, innerWidth) / Math.max(1, innerHeight));
+    capH = Math.round(h / 2) * 2;
+    capW = Math.round(h * ar / 2) * 2;
+    capturing = true;
+    resize();
+  }
+
+  const stream = canvas.captureStream(60);
+  const mime = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm']
+    .find(m => MediaRecorder.isTypeSupported(m));
+  recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: P.bitrate * 1e6 });
+  recChunks = [];
+  recorder.ondataavailable = e => { if (e.data.size) recChunks.push(e.data); };
+  recorder.onstop = () => {
+    const blob = new Blob(recChunks, { type: 'video/webm' });
+    const a2 = document.createElement('a');
+    a2.download = 'chladni-' + Date.now() + '.webm';
+    a2.href = URL.createObjectURL(blob);
+    a2.click();
+    setTimeout(() => URL.revokeObjectURL(a2.href), 5000);
+    recorder = null;
+    clearInterval(recTimer);
+    if (capturing) { capturing = false; resize(); }
+    document.getElementById('recbadge').classList.remove('on');
+    btnRec.classList.remove('armed'); btnRec.textContent = '● record video';
+  };
+  recorder.start();
+  recStart = Date.now();
+  document.getElementById('recbadge').classList.add('on');
+  btnRec.classList.add('armed'); btnRec.textContent = '■ stop';
+  recTimer = setInterval(() => {
+    const s = ((Date.now() - recStart) / 1000) | 0;
+    document.getElementById('rectime').textContent =
+      'REC ' + String((s / 60) | 0).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+  }, 250);
+});
+
+document.getElementById('aspect').addEventListener('change', () => { computeFrame(); updateExportTag(); });
+document.getElementById('capres').addEventListener('change', updateExportTag);
+
+/* ---- keys ---- */
+addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+  const k = e.key.toLowerCase();
+  if (k === ' ') { e.preventDefault(); btnPause.click(); }
+  else if (k === 'r') scatterGrains();
+  else if (k === 'g') document.getElementById('btn-rand').click();
+  else if (k === 'd') btnGrains.click();
+  else if (k === 'f') {
+    const btns = [...document.querySelectorAll('[data-field]')];
+    const cur = btns.findIndex(b => b.classList.contains('active'));
+    btns[(cur + 1) % btns.length].click();
+  }
+  else if (k === 's') document.getElementById('btn-png').click();
+  else if (k === 'v') btnRec.click();
+  else if (k === 'h') document.getElementById('paneltoggle').click();
+});
+
+/* ---- boot ---- */
+buildParamRows(PLATE_PARAMS, document.getElementById('params-plate'));
+buildParamRows(UNIT_PARAMS, document.getElementById('params-units'));
+buildParamRows(DRIVE_PARAMS, document.getElementById('params-drive'));
+buildParamRows(DRIVEPT_PARAMS, document.getElementById('params-drivept'));
+buildParamRows(GRAIN_PARAMS, document.getElementById('params-grain'));
+buildParamRows(GRAINCOL_PARAMS, document.getElementById('params-graincol'));
+buildParamRows(RENDER_PARAMS, document.getElementById('params-render'));
+buildParamRows(AUDIO_PARAMS, document.getElementById('params-audio'));
+buildParamRows(MIDI_PARAMS, document.getElementById('params-midi'));
+buildParamRows(EXPORT_PARAMS, document.getElementById('params-export'));
+buildPresets();
+loadLfo();
+buildLfoUI();
+updateDriveEnable();
+updateEdgeButtons();
+setMedium(medium);
+updateSwatches();
+buildCatalogue();
+solveModes();
+scatterGrains();
+resize();
+drawSpectrum();
+updateTags();
+updateUnits();
+updateExportTag();
+requestAnimationFrame(frame);
+</script>
+<script>
+/* ==================================================================
+   accessibility shim  -  WCAG 2.2 AA
+   ------------------------------------------------------------------
+   These artefacts carry state in CSS classes, which assistive tech
+   cannot see. Rather than thread ARIA through every handler, this
+   mirrors the state that already exists onto the accessibility tree
+   and keeps it in sync. It changes nothing visually.
+   ================================================================== */
+(function () {
+  'use strict';
+
+  /* --- 4.1.2  a button that carries `.active` is a toggle ---------- */
+  function isToggle(b) {
+    return b.tagName === 'BUTTON' &&
+           (b.classList.contains('active') ||
+            (b.parentElement && b.parentElement.querySelector(':scope > button.active')));
+  }
+  function syncPressed(b) {
+    if (!isToggle(b) && !b.hasAttribute('aria-pressed')) return;
+    b.setAttribute('aria-pressed', b.classList.contains('active') ? 'true' : 'false');
+  }
+
+  /* --- 4.1.2  panel visibility lives in a class, so mirror it ------ */
+  var panel  = document.getElementById('panel');
+  var toggle = document.getElementById('paneltoggle');
+  function syncPanel() {
+    if (!panel || !toggle) return;
+    var open = !panel.classList.contains('hidden');
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    // 2.4.3 - a panel slid off-screen must not stay in the tab order
+    if (open) panel.removeAttribute('inert');
+    else panel.setAttribute('inert', '');
+  }
+
+  /* --- 1.3.1  the readout beside a slider is its value ------------- */
+  function syncValue(span) {
+    var id = span.id && span.id.indexOf('val-') === 0 ? span.id.slice(4) : null;
+    if (!id) return;
+    var inp = document.getElementById('in-' + id);
+    if (inp) inp.setAttribute('aria-valuetext', span.textContent.trim());
+  }
+
+  function initialPass() {
+    document.querySelectorAll('button').forEach(syncPressed);
+    document.querySelectorAll('span.val[id^="val-"]').forEach(syncValue);
+    syncPanel();
+  }
+
+  var obs = new MutationObserver(function (records) {
+    records.forEach(function (r) {
+      if (r.type === 'attributes' && r.target.tagName === 'BUTTON') syncPressed(r.target);
+      else if (r.type === 'attributes' && r.target === panel) syncPanel();
+      else if (r.type === 'childList' || r.type === 'characterData') {
+        var t = r.target.nodeType === 3 ? r.target.parentElement : r.target;
+        if (t && t.classList && t.classList.contains('val')) syncValue(t);
+        if (r.type === 'childList') {
+          r.addedNodes.forEach(function (n) {
+            if (n.nodeType !== 1) return;
+            if (n.tagName === 'BUTTON') syncPressed(n);
+            n.querySelectorAll && n.querySelectorAll('button').forEach(syncPressed);
+            n.querySelectorAll && n.querySelectorAll('span.val[id^="val-"]').forEach(syncValue);
+          });
+        }
+      }
+    });
+  });
+
+  function start() {
+    initialPass();
+    obs.observe(document.body, {
+      subtree: true, childList: true, characterData: true,
+      attributes: true, attributeFilter: ['class']
+    });
+  }
+  if (document.readyState === 'loading')
+    document.addEventListener('DOMContentLoaded', start);
+  else start();
+})();
+</script>
+
+</body>
+</html>
