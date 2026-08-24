@@ -69,6 +69,10 @@
     border-left: 1px solid var(--line);
     overflow-y: auto; overscroll-behavior: contain;
     transition: transform 0.25s ease;
+    /* the mode list is rewritten whenever the solver runs. with an lfo on the
+       frequency that is constant, and scroll anchoring would keep re-picking an
+       anchor node that no longer exists and tugging the panel up and down. */
+    overflow-anchor: none;
   }
   #panel.hidden { transform: translateX(100%); }
   #panel::-webkit-scrollbar { width: 4px; }
@@ -89,7 +93,10 @@
     font-size: 9px; font-weight: 600; letter-spacing: 0.3em; text-transform: uppercase;
     color: var(--ink-dim); margin-bottom: 14px;
   }
-  .section h2 .tag { margin-left: auto; color: var(--accent); letter-spacing: 0.1em; }
+  .section h2 .tag {
+    margin-left: auto; color: var(--accent); letter-spacing: 0.1em;
+    white-space: nowrap;                 /* a wrapping tag would grow the header */
+  }
   .infobtn {
     flex: none; width: 15px; height: 15px; padding: 0; line-height: 1;
     font-family: var(--mono); font-size: 9px; letter-spacing: 0;
@@ -110,9 +117,21 @@
 
   .param { margin-bottom: 12px; }
   .param.disabled { opacity: 0.3; pointer-events: none; }
+  /* a whole section that is switched off elsewhere — the header and its info
+     panel stay live so you can still read why */
+  .section.inactive > select,
+  .section.inactive > .sublabel,
+  .section.inactive > #units-out { opacity: 0.32; pointer-events: none; }
+  .section.inactive h2 .tag { color: var(--ink-dim); }
   .param .row1 { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 5px; }
   .param label { font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink); }
-  .param .val { font-size: 10px; color: var(--accent); letter-spacing: 0.05em; }
+  .param .val {
+    font-size: 10px; color: var(--accent); letter-spacing: 0.05em;
+    font-variant-numeric: tabular-nums;
+  }
+  /* the keyboard-selected parameter — up / down arrows step this one */
+  .param.selected { box-shadow: -6px 0 0 -4px var(--accent); }
+  .param.selected label { color: var(--accent); }
   .param .row2 { display: flex; align-items: center; gap: 8px; }
 
   input[type="range"] {
@@ -163,6 +182,12 @@
     border-radius: 2px; padding: 3px 7px; cursor: pointer; white-space: nowrap;
   }
   .map-cc-btn:hover { color: var(--ink); border-color: var(--ink-dim); }
+  .map-cc-num {
+    width: 46px; background: #0d0f13; border: 1px solid var(--line-strong); color: var(--accent);
+    font-family: var(--mono); font-size: 9px; padding: 2px 4px; border-radius: 2px; text-align: right;
+  }
+  .map-cc-num::placeholder { color: var(--ink-dim); }
+  .map-cc-num:focus:not(:focus-visible) { outline: none; border-color: var(--accent-dim); }
   .map-cc-btn.bound { color: var(--accent); border-color: var(--accent-dim); }
   .map-cc-btn.learning {
     color: var(--bg); background: var(--accent); border-color: var(--accent);
@@ -243,9 +268,11 @@
 
   /* modal spectrum readout */
   #spectrum { width: 100%; height: 64px; display: block; margin-bottom: 8px; }
+  /* a fixed height: the list is rewritten on every solve, and letting it grow
+     and shrink made the whole panel jump while an lfo swept the frequency */
   #modelist {
     font-size: 9.5px; line-height: 1.75; color: var(--ink-dim); letter-spacing: 0.06em;
-    max-height: 190px; overflow-y: auto; overflow-x: hidden;
+    height: 190px; overflow-y: auto; overflow-x: hidden;
   }
   #modelist .hot { color: var(--accent); }
   #modelist::-webkit-scrollbar { width: 3px; }
@@ -474,15 +501,6 @@
       <button class="tool active" data-disp="plate">plate ω∝k²</button>
       <button class="tool" data-disp="membrane">membrane ω∝k</button>
     </div>
-    <div class="sublabel">real units</div>
-    <select aria-label="Plate material" id="material">
-      <option value="steel" selected>steel</option>
-      <option value="alu">aluminium</option>
-      <option value="brass">brass</option>
-      <option value="glass">glass</option>
-    </select>
-    <div id="params-units"></div>
-    <div id="units-out"></div>
     <div class="hint" id="i-plate">
       a real plate is fourth-order (biharmonic), so doubling the frequency scales the wavenumber by
       <b>√2</b>, not 2. the membrane setting is the ordinary wave equation for comparison.<br><br>
@@ -496,10 +514,7 @@
       Bessel modes, with the clamped case needing the modified-Bessel companion. the <b>ring</b> is
       supported on both rims, and the <b>equilateral triangle</b> uses the exact Lamé modes built by
       reflecting six plane waves — both are only defined for the supported case here.<br><br>
-      <b>real units</b> converts the abstract frequency scale into hertz for an actual sheet:
-      <code>f = π F h c<sub>p</sub> / (2 L² √12)</code>, with <code>c<sub>p</sub> = √(E / ρ(1−ν²))</code>.
-      the fourth-power in <b>L</b> is the whole story of plate tuning — double the size and every
-      pitch drops two octaves. thickness scales it linearly the other way.
+      the sheet's real dimensions — size, thickness and material — live under <b>Real units</b>.
     </div>
   </div>
 
@@ -531,6 +546,46 @@
   </div>
 
   <div class="section">
+    <h2>Audio <span class="tag" id="audio-tag"></span><button class="infobtn" data-info="i-audio">i</button></h2>
+    <div class="toolrow grid2">
+      <button class="tool" id="btn-audio">output off</button>
+      <button class="tool" id="btn-realhz">real hz</button>
+    </div>
+    <div id="params-audio"></div>
+    <div class="hint" id="i-audio">
+      synthesises the actual drive signal — the same partial amplitudes and phases that are feeding
+      the plate, as a <b>periodic wave</b>. changing waveform, partial count, tilt or pulse width
+      changes what you hear and what the plate does, together.<br><br>
+      <b>pitch per unit</b> sets the audible hertz for one unit of modal frequency, since the
+      frequency slider is in plate units, not hertz. at 8 Hz/unit a drive of f 25 sounds at 200 Hz.<br><br>
+      <b>real hz</b> ignores that slider and plays the frequency the plate would actually sound at,
+      from the size, thickness and material set under <b>Real units</b> below — you hear the sheet
+      you drew, and those controls come alive.
+    </div>
+  </div>
+
+  <div class="section" id="sec-units">
+    <h2>Real units <span class="tag" id="units-tag"></span><button class="infobtn" data-info="i-units">i</button></h2>
+    <select aria-label="Plate material" id="material">
+      <option value="steel" selected>steel</option>
+      <option value="alu">aluminium</option>
+      <option value="brass">brass</option>
+      <option value="glass">glass</option>
+    </select>
+    <div id="params-units"></div>
+    <div id="units-out"></div>
+    <div class="hint" id="i-units">
+      converts the abstract frequency scale into hertz for an actual sheet:
+      <code>f = π F h c<sub>p</sub> / (2 L² √12)</code>, with <code>c<sub>p</sub> = √(E / ρ(1−ν²))</code>.
+      the fourth-power in <b>L</b> is the whole story of plate tuning — double the size and every
+      pitch drops two octaves. thickness scales it linearly the other way.<br><br>
+      these controls are live only while <b>real hz</b> is armed under <b>Audio</b>, since that is
+      what plays the sheet you have drawn. the hertz figures beside the drive and in the mode list
+      are read off this calibration either way.
+    </div>
+  </div>
+
+  <div class="section">
     <h2>Excitation point <span class="tag"></span><button class="infobtn" data-info="i-pt">i</button></h2>
     <div id="params-drivept"></div>
     <div class="btnrow">
@@ -540,9 +595,11 @@
       a driver sitting <b>on</b> a mode's nodal line cannot excite it at all. drag on the plate to move
       the driver and watch half the catalogue vanish. corner drive couples to everything.<br><br>
       <b>shift-click</b> the plate to pin a damping finger (up to four; shift-click one again to lift
-      it). a finger only damps the modes that actually move underneath it — park one on a nodal line
-      and that mode rings on untouched, which is exactly how you pick a single figure out of a
-      degenerate pair by hand.
+      it). a finger loads the plate hard: it eats the mode's q and weakens the drive's grip on
+      it at once, so at the top of the <b>finger damping</b> range a mode with an antinode under
+      your fingertip is silenced outright rather than merely blurred. a mode with a node there
+      rings on untouched, which is exactly how you pick a single figure out of a degenerate pair
+      by hand.
     </div>
   </div>
 
@@ -603,29 +660,21 @@
       slows it down. it does not affect where the grains settle.<br><br>
       <b>field</b>: <code>motion</code> shows instantaneous displacement, <code>rms</code> shows the
       time-averaged amplitude the grains actually respond to.<br><br>
+      <b>trails</b> paints the previous frame back over the new one, so a grain leaves a fading
+      streak behind it instead of jumping. the number is the decay per frame: at 90% a grain from
+      ten frames ago is still a third as bright, at 30% it is gone almost at once. it costs nothing
+      in the physics — the sand settles exactly where it always did, you are just seeing the path
+      it took. it reads best with <b>feed rate</b> up, and turns a spinning plate into long arcs.<br><br>
+      <b>plate spin</b> turns the whole plate — sheet, field and grains together — at a
+      steady rate, and <b>plate angle</b> is a fixed offset on top of it. it is a camera
+      move, not a physical one: the modes and the sand behave exactly as they would on a
+      plate standing still. a square or triangular plate shrinks a little once rotation is
+      armed, so its corners never clip the frame while it turns.<br><br>
       <b>canvas</b> is the ground behind the plate, and it fills the letterbox surround too, so a
       framed export lands on one flat colour. the grain colours are ordinary parameters — hue,
       saturation and lightness — so a controller or an lfo can drive them. the <b>fine hue</b> only
       shows in <code>both at once</code>. the <b>driver dot</b> marks the excitation point — switch it
       off for a clean capture.
-    </div>
-  </div>
-
-  <div class="section">
-    <h2>Audio <span class="tag" id="audio-tag"></span><button class="infobtn" data-info="i-audio">i</button></h2>
-    <div class="toolrow grid2">
-      <button class="tool" id="btn-audio">output off</button>
-      <button class="tool" id="btn-realhz">real hz</button>
-    </div>
-    <div id="params-audio"></div>
-    <div class="hint" id="i-audio">
-      synthesises the actual drive signal — the same partial amplitudes and phases that are feeding
-      the plate, as a <b>periodic wave</b>. changing waveform, partial count, tilt or pulse width
-      changes what you hear and what the plate does, together.<br><br>
-      <b>pitch per unit</b> sets the audible hertz for one unit of modal frequency, since the
-      frequency slider is in plate units, not hertz. at 8 Hz/unit a drive of f 25 sounds at 200 Hz.<br><br>
-      <b>real hz</b> ignores that slider and plays the frequency the plate would actually sound at,
-      from the size, thickness and material set under <b>Plate</b> — you hear the sheet you drew.
     </div>
   </div>
 
@@ -653,11 +702,24 @@
   </div>
 
   <div class="section">
-    <h2>Presets</h2>
+    <h2>Presets <span class="tag" id="preset-tag"></span><button class="infobtn" data-info="i-preset">i</button></h2>
     <select aria-label="Preset" id="preset"></select>
     <div class="btnrow">
       <button class="act" id="btn-pause">pause</button>
       <button class="act" id="btn-rand">randomize</button>
+    </div>
+    <div class="sublabel" style="margin-top:12px">patch file</div>
+    <div class="btnrow">
+      <button class="act" id="btn-export-json">export json</button>
+      <button class="act" id="btn-import-json">import json</button>
+    </div>
+    <input type="file" id="preset-file" accept="application/json,.json" class="sr-only" aria-label="Import a preset json file">
+    <div class="hint" id="i-preset">
+      <b>export json</b> writes the whole patch to a file — plate, drive, grains, colours,
+      rotation, both lfos and their targets, and the midi cc map. <b>import json</b> reads one
+      back and applies it wholesale, so a patch travels between machines and browsers.<br><br>
+      the built-in preset list above is unchanged: it only names a handful of fields and leaves
+      everything else where you left it. an imported json replaces the lot.
     </div>
   </div>
 
@@ -690,6 +752,9 @@
       </div>
       <div class="sublabel">input device</div>
       <select aria-label="MIDI input device" id="midi-input-select"><option value="">— all inputs —</option></select>
+      <div class="toolrow">
+        <button class="tool" id="btn-midinotes">notes → resonances</button>
+      </div>
       <div id="midi-monitor">waiting for messages…</div>
       <div id="params-midi"></div>
       <div class="sublabel">cc mapping</div>
@@ -701,9 +766,20 @@
       <div class="hint" id="i-midi">
         add a mapping, pick a target, hit <b>learn</b> and move a knob. the monitor above shows every
         incoming message, so you can confirm the controller is reaching the page at all.<br><br>
+        the <b>cc</b> box takes a number by hand if you would rather read it off the
+        controller's manual than coax it into sending the right knob — type it, or leave it
+        empty to unbind.<br><br>
+          <b>notes → resonances</b> plays the plate from a keyboard. the <b>lowest note</b> lands on
+        the plate's lowest eigenfrequency and every semitone above it steps one rung up the ladder,
+        so a chromatic run walks the whole catalogue of figures in order. it is not a pitch — the
+        rungs are however far apart the plate's own resonances happen to be, which is the point.
+        notes past the top of the ladder hold at the highest one, and changing the plate re-ranks
+        everything under your fingers.<br><br>
         <b>lo / hi</b> set the range the full 0–127 sweep covers — invert them to reverse the knob.
-        <b>smoothing</b> interpolates between 7-bit steps so sweeps do not stair-step.
-        mappings persist locally.
+        <b>smoothing</b> interpolates between 7-bit steps so sweeps do not stair-step.<br><br>
+        a mapping only holds a parameter while a cc is actually moving it. once the sweep
+        settles it lets go, so a bound-but-silent knob never locks the slider, the arrow keys
+        or an lfo out of that parameter. mappings persist locally.
       </div>
     </div>
   </div>
@@ -749,7 +825,10 @@
       <b>space</b> pause · <b>r</b> scatter grains · <b>g</b> randomize<br>
       <b>d</b> grains · <b>f</b> field mode · <b>s</b> png · <b>v</b> record · <b>h</b> panel<br><br>
       <b>drag</b> the plate to move the driver · <b>shift-click</b> to pin a damping finger<br>
-      <b>scroll</b> to sweep the frequency · <b>double-click</b> any slider to reset it
+      <b>scroll</b> to sweep the frequency · <b>double-click</b> any slider to reset it<br><br>
+      <b>click</b> a parameter row to select it, then <b>↑ / ↓</b> to step it — hold
+      <b>shift</b> for ten notches at a time. <b>↑ / ↓</b> on a dropdown jumps
+      straight to the next entry.
     </div>
   </div>
 </div>
@@ -965,6 +1044,7 @@ uniform int   uShowDrive;
 uniform vec3  uBg;
 uniform vec2  uFinger[4];
 uniform int   uFingerN;
+uniform float uRot;       // plate rotation, radians
 
 const float PI = 3.14159265359;
 const float TAU3 = 2.09439510239;      // 2π/3
@@ -995,7 +1075,12 @@ vec3 palette(int p, float t) {          // t in [-1, 1]
 }
 
 void main() {
-  vec2 q = (gl_FragCoord.xy - uOrigin) / uPlate;
+  // rotation is a rigid turn in *pixel* space about the plate centre, so a
+  // stretched rectangle turns rather than shearing
+  vec2 pc = gl_FragCoord.xy - (uOrigin + uPlate * 0.5);
+  float cr = cos(uRot), sr = sin(uRot);
+  pc = vec2(cr * pc.x + sr * pc.y, -sr * pc.x + cr * pc.y);
+  vec2 q = pc / uPlate + 0.5;
 
   bool inside;
   float th = 0.0, s = 0.0;
@@ -1068,8 +1153,13 @@ uniform vec2 uOrigin;
 uniform vec2 uPlate;
 uniform vec2 uRes;
 uniform float uSize;
+uniform float uRot;
 void main() {
-  vec2 px = uOrigin + a_p * uPlate;
+  // same rigid turn the field shader applies, so grains stay glued to the plate
+  float cr = cos(uRot), sr = sin(uRot);
+  vec2 o = (a_p - 0.5) * uPlate;
+  o = vec2(cr * o.x - sr * o.y, sr * o.x + cr * o.y);
+  vec2 px = uOrigin + uPlate * 0.5 + o;
   gl_Position = vec4(px / uRes * 2.0 - 1.0, 0.0, 1.0);
   gl_PointSize = uSize;
 }`;
@@ -1083,6 +1173,17 @@ void main() {
   float a = 1.0 - smoothstep(0.18, 0.5, length(d));
   if (a <= 0.003) discard;
   fragColor = vec4(uColor, a);
+}`;
+
+/* the previous frame, blitted back over the new one — the whole of the trail
+   effect. rgb comes from the stored frame, alpha is the knob. */
+const FRAG_BLIT = `#version 300 es
+precision highp float;
+uniform sampler2D uTex;
+uniform float uAlpha;
+out vec4 fragColor;
+void main() {
+  fragColor = vec4(texelFetch(uTex, ivec2(gl_FragCoord.xy), 0).rgb, uAlpha);
 }`;
 
 function compile(type, src) {
@@ -1102,6 +1203,7 @@ function program(vs, fs) {
 
 const progField = program(VERT_QUAD, FRAG_FIELD);
 const progPoint = program(VERT_POINT, FRAG_POINT);
+const progBlit  = program(VERT_QUAD, FRAG_BLIT);
 
 const quadVao = gl.createVertexArray();
 gl.bindVertexArray(quadVao);
@@ -1165,7 +1267,7 @@ const DRIVE_PARAMS = [
 const DRIVEPT_PARAMS = [
   { id: 'dx', label: 'drive x', min: 0, max: 1, step: 0.002, value: 0.62, dp: 3 },
   { id: 'dy', label: 'drive y', min: 0, max: 1, step: 0.002, value: 0.38, dp: 3 },
-  { id: 'finger', label: 'finger damping', min: 0, max: 8, step: 0.05, value: 3, dp: 2 },
+  { id: 'finger', label: 'finger damping', min: 0, max: 60, step: 0.1, value: 8, dp: 1 },
 ];
 const GRAIN_PARAMS = [
   { id: 'grains', label: 'count',         min: 0,   max: 80000, step: 1000,  value: 80000, dp: 0 },
@@ -1186,6 +1288,11 @@ const GRAINCOL_PARAMS = [
 ];
 const RENDER_PARAMS = [
   { id: 'motion', label: 'motion', min: 0, max: 0.03, step: 0.0002, value: 0.012, dp: 4 },
+  { id: 'rotspd', label: 'plate spin', min: -90, max: 90, step: 0.5, value: 0, dp: 1,
+    fmt: v => (Math.abs(v) < 0.05 ? 'still' : v.toFixed(1) + '°/s') },
+  { id: 'rotang', label: 'plate angle', min: 0, max: 360, step: 1, value: 0, dp: 0, unit: '°' },
+  { id: 'trails', label: 'trails', min: 0, max: 0.97, step: 0.01, value: 0, dp: 2,
+    fmt: v => v < 0.005 ? 'off' : Math.round(v * 100) + '%' },
 ];
 const AUDIO_PARAMS = [
   { id: 'vol',    label: 'volume',         min: 0,   max: 1,  step: 0.005, value: 0.35, dp: 3 },
@@ -1193,7 +1300,14 @@ const AUDIO_PARAMS = [
 ];
 const MIDI_PARAMS = [
   { id: 'slew', label: 'smoothing', min: 0, max: 300, step: 1, value: 45, dp: 0, unit: ' ms' },
+  // which note lands on the plate's lowest resonance; the ladder climbs a
+  // semitone per rung from there
+  { id: 'notebase', label: 'lowest note', min: 0, max: 108, step: 1, value: 24, dp: 0,
+    fmt: v => noteName(Math.round(v)) },
 ];
+
+const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+function noteName(n) { return NOTE_NAMES[((n % 12) + 12) % 12] + (Math.floor(n / 12) - 1); }
 const EXPORT_PARAMS = [
   { id: 'bitrate', label: 'video bitrate', min: 4, max: 120, step: 1, value: 40, dp: 0, unit: ' mbps' },
 ];
@@ -1373,6 +1487,16 @@ function buildCatalogue() {
 }
 
 let modeFreqs = [];
+
+/* the ladder the keyboard walks: only the resonances the frequency control can
+   actually reach. a plate whose fundamental sits below the slider's floor (or
+   whose high modes run past its ceiling) would otherwise give dead rungs that
+   all land on the same clamped value. */
+function noteLadder() {
+  const d = paramById.freq;
+  return modeFreqs.filter(f => f >= d.min && f <= d.max);
+}
+
 function snapFreq(v) {
   if (!modeFreqs.length) return v;
   let best = modeFreqs[0], bd = Math.abs(v - best);
@@ -1472,14 +1596,19 @@ function solveModes() {
       const sh = shapeAt(m, fingers[f].x, fingers[f].y);
       sup += sh * sh;
     }
-    const Qm = Q / (1 + P.finger * sup);
+    // a real finger does two things at once: it eats the mode's Q *and* it mass-loads
+    // the sheet, so the drive couples in less strongly too. both together let a finger
+    // actually silence a mode instead of merely blurring it
+    const damp = 1 + P.finger * sup;
+    const Qm = Q / damp;
+    const cd = c / damp;
     let tot = 0;
     for (let p = 0; p < np; p++) {
       // H = 1 / ((1 - r²) + j·r/Q),  r = f_partial / f_mode
       const r = spec[p].f / m.F;
       const dre = 1 - r * r, dim = r / Qm;
       const d2 = dre * dre + dim * dim;
-      const g = spec[p].a * c / d2;
+      const g = spec[p].a * cd / d2;
       const hre = g * dre, him = -g * dim;
       m.hre[p] = hre; m.him[p] = him;
       tot += Math.hypot(hre, him);
@@ -1763,9 +1892,34 @@ function moveGrains(lo, hi, dir, dt) {
    ================================================================ */
 
 let W = 0, H = 0, origin = [0, 0], side = 0, plate = [0, 0];
+
+/* trails keep the last composited frame in a texture and paint it back over the
+   next one. a fresh grain sits on top at full strength; a grain from n frames
+   ago survives at trails^n, so the knob is literally the decay per frame. */
+let texPrev = null, prevValid = false;
+function allocTrailBuffer() {
+  if (!texPrev) {
+    texPrev = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, texPrev);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  }
+  gl.bindTexture(gl.TEXTURE_2D, texPrev);
+  // RGB8, not RGBA8: the context is alpha:false, so the drawing buffer has no
+  // alpha channel and copyTexSubImage2D into an rgba destination is an error
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB8, W, H, 0, gl.RGB, gl.UNSIGNED_BYTE, null);
+  prevValid = false;                 // nothing worth ghosting at the new size
+}
 let frame_ = [0, 0, 0, 0];           // framed region in gl pixels (x, y, w, h), y from bottom
 let capturing = false, capW = 0, capH = 0;
 const modeBuf = new Float32Array(MAXMODES * 4);
+
+// plate rotation: an accumulating spin plus a static offset angle
+let plateRot = 0;
+function rotActive() { return Math.abs(P.rotspd) > 1e-6 || Math.abs(P.rotang) > 1e-6; }
+function plateAngle() { return plateRot + P.rotang * Math.PI / 180; }
 
 function aspectValue() {
   const el = document.getElementById('aspect');
@@ -1792,6 +1946,7 @@ function resize() {
     canvas.style.width = vw + 'px'; canvas.style.height = vh + 'px';
   }
   canvas.width = W; canvas.height = H;
+  allocTrailBuffer();
   computeFrame();
 }
 
@@ -1799,7 +1954,9 @@ function computeFrame() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   // while capturing, the canvas *is* the frame — no panel inset, no letterbox
   const panelW = (capturing || document.body.classList.contains('panel-hidden')) ? 0 : 292 * dpr;
-  const availW = W - panelW, availH = H;
+  // a window narrower than the panel (or a backgrounded tab reporting zero)
+  // would otherwise give a negative frame — and a negative gl.scissor
+  const availW = Math.max(1, W - panelW), availH = Math.max(1, H);
   const a = capturing ? 0 : aspectValue();
   let fw = availW, fh = availH;
   if (a > 0) {
@@ -1814,6 +1971,15 @@ function computeFrame() {
   const fit = Math.min(fw, fh) * 0.88;
   let pw = fit, ph = fit;
   if (ar >= 1) ph = fit / ar; else pw = fit * ar;
+  // a turning box sweeps out its own diagonal; shrink once for the worst case so
+  // the corners never clip and the plate does not pulse in size as it spins.
+  // a disc is its own bounding circle, so it needs none of this.
+  if (rotActive() && geom !== 'disc' && geom !== 'ring') {
+    // fit can come out non-positive in a degenerate window (panel wider than the
+    // viewport); never let that flip the plate inside out
+    const diag = Math.hypot(pw, ph);
+    if (fit > 0 && diag > 0) { const k = Math.min(1, fit / diag); pw *= k; ph *= k; }
+  }
   plate = [pw, ph];
   side = Math.min(pw, ph);
   origin = [frame_[0] + (fw - pw) / 2, frame_[1] + (fh - ph) / 2];
@@ -1822,11 +1988,13 @@ addEventListener('resize', resize);
 
 const uF = {};
 ['uMode', 'uCount', 'uGeom', 'uRms', 'uProf', 'uOrigin', 'uPlate', 'uInner',
- 'uScale', 'uField', 'uPal', 'uDrive', 'uShowDrive', 'uBg', 'uFinger', 'uFingerN']
+ 'uScale', 'uField', 'uPal', 'uDrive', 'uShowDrive', 'uBg', 'uFinger', 'uFingerN', 'uRot']
   .forEach(k => uF[k] = gl.getUniformLocation(progField, k));
 const fingerBuf = new Float32Array(8);
 const uP = {};
-['uOrigin', 'uPlate', 'uRes', 'uSize', 'uColor'].forEach(k => uP[k] = gl.getUniformLocation(progPoint, k));
+['uOrigin', 'uPlate', 'uRes', 'uSize', 'uColor', 'uRot'].forEach(k => uP[k] = gl.getUniformLocation(progPoint, k));
+const uB = {};
+['uTex', 'uAlpha'].forEach(k => uB[k] = gl.getUniformLocation(progBlit, k));
 
 const GEOM_ID = { rect: 0, disc: 1, ring: 1, tri: 2 };
 
@@ -1835,7 +2003,10 @@ let t = 0, last = performance.now();
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
-  if (!paused) { t += dt; stepGrains(dt); tickLfo(dt, now); }
+  if (!paused) {
+    t += dt; stepGrains(dt); tickLfo(dt, now);
+    if (P.rotspd) plateRot = (plateRot + P.rotspd * dt * Math.PI / 180) % TAU;
+  }
   tickMidi(dt);
 
   gl.viewport(0, 0, W, H);
@@ -1889,7 +2060,23 @@ function frame(now) {
   }
   gl.uniform2fv(uF.uFinger, fingerBuf);
   gl.uniform1i(uF.uFingerN, fingers.length);
+  gl.uniform1f(uF.uRot, plateAngle());
   gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+  // the ghost goes on after the field (which is opaque and would wipe it) and
+  // before the grains, so the newest grains always read crisp on top
+  const trail = P.trails;
+  if (trail > 0.005 && prevValid) {
+    gl.useProgram(progBlit);
+    gl.bindVertexArray(quadVao);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texPrev);
+    gl.uniform1i(uB.uTex, 0);
+    gl.uniform1f(uB.uAlpha, trail);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.disable(gl.BLEND);
+  }
 
   if (showGrains && grainCount > 0) {
     gl.useProgram(progPoint);
@@ -1900,6 +2087,7 @@ function frame(now) {
     gl.uniform2f(uP.uOrigin, origin[0], origin[1]);
     gl.uniform2f(uP.uPlate, plate[0], plate[1]);
     gl.uniform2f(uP.uRes, W, H);
+    gl.uniform1f(uP.uRot, plateAngle());
     // grains keep their size relative to the plate when capturing at higher res
     const dprEff = capturing ? (H / Math.max(1, innerHeight)) : Math.min(window.devicePixelRatio || 1, 2);
     gl.enable(gl.BLEND);
@@ -1921,6 +2109,15 @@ function frame(now) {
   }
 
   gl.disable(gl.SCISSOR_TEST);
+
+  if (trail > 0.005) {
+    gl.bindTexture(gl.TEXTURE_2D, texPrev);
+    gl.copyTexSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 0, 0, W, H);
+    prevValid = true;
+  } else if (prevValid) {
+    prevValid = false;               // turning trails off must not leave a stale ghost
+  }
+
   gl.bindVertexArray(null);
   drawStatus();
   requestAnimationFrame(frame);
@@ -1929,6 +2126,29 @@ function frame(now) {
 /* ================================================================
    ui
    ================================================================ */
+
+/* the keyboard-selected parameter. clicking anywhere on a row selects it, and
+   up / down then step it — the slider itself does not have to hold focus. */
+let selectedParam = null;
+function selectParam(id) {
+  if (!paramById[id] || selectedParam === id) return;
+  const prev = selectedParam && document.getElementById('param-' + selectedParam);
+  if (prev) prev.classList.remove('selected');
+  selectedParam = id;
+  const wrap = document.getElementById('param-' + id);
+  if (wrap) wrap.classList.add('selected');
+}
+// step by one notch of the parameter's own grid; shift takes ten at a time
+function nudgeParam(id, dir, big) {
+  const d = paramById[id];
+  if (!d) return;
+  const inp = document.getElementById('in-' + id);
+  if (inp && inp.disabled) return;
+  // quantise onto the parameter's own grid, not the shift-multiplied one, so a
+  // big jump from an off-grid value still moves by the full ten notches
+  const step = d.step * (big ? 10 : 1);
+  setParam(id, Math.round((PB[id] + dir * step) / d.step) * d.step);
+}
 
 function buildParamRows(list, container) {
   container.innerHTML = '';
@@ -1946,6 +2166,8 @@ function buildParamRows(list, container) {
     input.addEventListener('input', () => setParam(d.id, parseFloat(input.value), false));
     // d.value is the declared default and is never written to, so it stays a true default
     input.addEventListener('dblclick', () => setParam(d.id, d.value));
+    wrap.addEventListener('pointerdown', () => selectParam(d.id));
+    input.addEventListener('focus', () => selectParam(d.id));
     refreshParamUI(d.id);
   }
 }
@@ -2008,6 +2230,7 @@ function applyMod(id, quiet) {
   if (AUDIOUI.has(id)) updateAudio();
   if (UNITSUI.has(id)) updateUnits();
   if (id === 'mix') splitGrains();
+  if (id === 'rotspd' || id === 'rotang') computeFrame();
   if (id === 'ghue' || id === 'gsat' || id === 'glit' || id === 'fhue') updateSwatches();
 }
 
@@ -2315,9 +2538,30 @@ function updateUnits() {
       P.pthick.toFixed(2) + ' mm → <b>' + hz.toFixed(1) + ' hz</b> per unit · drive at <b>' +
       fmtHz(P.freq * hz) + '</b>';
   }
+  const utag = document.getElementById('units-tag');
+  if (utag && realHz) utag.textContent = fmtHz(hzPerUnit()) + '/unit';
   updateModeList();
   document.getElementById('drive-tag').textContent = spec.length + 'p · ' + fmtHz(P.freq * hzPerUnit());
   if (realHz) updateAudio();
+}
+
+/* the real-units calibration is what "real hz" plays, so it only takes input
+   while that is armed. the numbers it produces are still read out beside the
+   drive and in the mode list either way — this greys the controls, not the maths. */
+function updateRealUnitsEnable() {
+  const sec = document.getElementById('sec-units');
+  if (!sec) return;
+  sec.classList.toggle('inactive', !realHz);
+  const mat = document.getElementById('material');
+  if (mat) mat.disabled = !realHz;
+  for (const d of UNIT_PARAMS) {
+    const wrap = document.getElementById('param-' + d.id);
+    if (wrap) wrap.classList.toggle('disabled', !realHz);
+    const inp = document.getElementById('in-' + d.id);
+    if (inp) inp.disabled = !realHz;
+  }
+  const tag = document.getElementById('units-tag');
+  if (tag) tag.textContent = realHz ? fmtHz(hzPerUnit()) + '/unit' : 'needs real hz';
 }
 
 function updateSwatches() {
@@ -2326,12 +2570,26 @@ function updateSwatches() {
   if (b) b.style.background = rgbCss(fineRgb());
 }
 
+/* the solver runs on every parameter change — which, with an lfo on the drive,
+   means every frame. rebuilding fourteen dom rows at that rate churns the panel
+   for no gain, so coalesce to ten a second and skip identical output. the
+   trailing timer guarantees the final state still lands. */
+let _mlAt = 0, _mlTimer = null, _mlHtml = null;
 function updateModeList() {
+  const now = performance.now(), wait = 100 - (now - _mlAt);
+  if (wait > 0) {
+    if (!_mlTimer) _mlTimer = setTimeout(() => { _mlTimer = null; updateModeList(); }, wait);
+    return;
+  }
+  _mlAt = now;
   const el = document.getElementById('modelist');
-  if (!active.length) { el.innerHTML = '<span>no modes excited</span>'; return; }
+  if (!active.length) {
+    if (_mlHtml !== '') { _mlHtml = ''; el.innerHTML = '<span>no modes excited</span>'; }
+    return;
+  }
   const top = active.slice(0, 14), peak = top[0].tot || 1;
   const hz = hzPerUnit();
-  el.innerHTML = top.map(m => {
+  const html = top.map(m => {
     const rel = m.tot / peak;
     const bars = '█'.repeat(Math.max(1, Math.round(rel * 8))).padEnd(8, '·');
     return '<button class="moderow' + (rel > 0.35 ? ' hot' : '') + '" data-f="' + m.F +
@@ -2339,6 +2597,7 @@ function updateModeList() {
       m.label.padEnd(8, ' ').replace(/ /g, '&nbsp;') + ' f' + m.F.toFixed(1).padStart(7, ' ').replace(/ /g, '&nbsp;') +
       '&nbsp;&nbsp;' + bars + '&nbsp;&nbsp;<span class="hz">' + fmtHz(m.F * hz) + '</span></button>';
   }).join('');
+  if (html !== _mlHtml) { _mlHtml = html; el.innerHTML = html; }
 }
 // clicking a mode parks the drive on it — the fastest way to find a figure
 document.getElementById('modelist').addEventListener('click', e => {
@@ -2407,7 +2666,12 @@ let dragging = false;
 function pointerToPlate(e) {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const px = e.clientX * dpr, py = (innerHeight - e.clientY) * dpr;
-  return [(px - origin[0]) / side, (py - origin[1]) / side];
+  // undo the plate's rotation about its centre, so dragging the driver still
+  // lands where the pointer is once the plate is spinning
+  const ox = px - (origin[0] + plate[0] / 2), oy = py - (origin[1] + plate[1] / 2);
+  const r = plateAngle(), cr = Math.cos(r), sr = Math.sin(r);
+  const rx = cr * ox + sr * oy, ry = -sr * ox + cr * oy;
+  return [(rx + plate[0] / 2) / side, (ry + plate[1] / 2) / side];
 }
 canvas.addEventListener('pointerdown', e => {
   const [x, y] = pointerToPlate(e);
@@ -2451,6 +2715,26 @@ canvas.addEventListener('wheel', e => {
 }, { passive: false });
 
 /* ---- selects and toggles ---- */
+
+/* a closed <select> normally wants arrow-then-enter (and on some platforms the
+   arrow just opens the popup). step the value directly instead, and fire the
+   change event so every existing handler runs exactly as it would on a click.
+   delegated in the capture phase, so dynamically built selects are covered too. */
+document.addEventListener('keydown', e => {
+  const sel = e.target;
+  if (!sel || sel.tagName !== 'SELECT' || sel.multiple) return;
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+  if (e.altKey || e.metaKey || e.ctrlKey) return;          // alt+arrow opens the popup
+  const n = sel.options.length;
+  if (!n) return;
+  const dir = e.key === 'ArrowDown' ? 1 : -1;
+  let i = sel.selectedIndex;
+  do { i += dir; } while (i >= 0 && i < n && sel.options[i].disabled);
+  if (i < 0 || i >= n) { e.preventDefault(); return; }      // already at the end
+  e.preventDefault();
+  sel.selectedIndex = i;
+  sel.dispatchEvent(new Event('change', { bubbles: true }));
+}, true);
 
 // only offer the edge conditions a geometry can actually represent
 function updateEdgeButtons() {
@@ -2538,6 +2822,7 @@ btnRealHz.addEventListener('click', () => {
   // the pitch-per-unit slider is dead while the real calibration drives the tone
   const wrap = document.getElementById('param-basehz');
   if (wrap) wrap.classList.toggle('disabled', realHz);
+  updateRealUnitsEnable();
   updateAudio();
 });
 
@@ -2629,6 +2914,190 @@ document.getElementById('btn-rand').addEventListener('click', () => {
 });
 
 /* ================================================================
+   patch files — the whole instrument as json
+
+   the built-in presets above name a handful of fields on purpose. a
+   patch file is the opposite: everything that is not derived, written
+   out flat so it survives a different machine, browser or session.
+   ================================================================ */
+
+const PATCH_FORMAT = 'chladni-modal-patch';
+const WAVE_KEYS = ['sine', 'square', 'saw'];
+const MED_KEYS  = ['sand', 'powder', 'both'];
+
+function snapshotPatch() {
+  return {
+    format: PATCH_FORMAT,
+    version: 1,
+    saved: new Date().toISOString(),
+    plate:  { geom, edge, disp, material },
+    drive:  { waveform, snap: snapOn },
+    grains: { medium },
+    render: { field: fieldMode, palette, grains: showGrains, driver: showDrive, canvas: colCanvas },
+    audio:  { realHz },
+    frame:  { aspect: document.getElementById('aspect').value,
+              capres: document.getElementById('capres').value },
+    fingers: fingers.map(f => ({ x: +f.x.toFixed(5), y: +f.y.toFixed(5) })),
+    // the *base* values, not the modulated ones — a patch stores what you set,
+    // not whatever an lfo happened to be adding at the instant you hit export
+    params: Object.keys(PB).reduce((o, k) => (o[k] = PB[k], o), {}),
+    lfos: lfos.map(l => ({ wave: l.wave, rate: l.rate, depth: l.depth, phase: l.phase, run: l.run,
+                           assigns: l.assigns.map(a => ({ key: a.key, amt: a.amt })) })),
+    midi: { notes: midiNotes,
+            maps: midiMappings.map(m => ({ key: m.key, cc: m.cc, lo: m.lo, hi: m.hi })) },
+  };
+}
+
+// every field is optional and every value is re-clamped: a hand-edited or
+// older patch loads as far as it makes sense and leaves the rest alone
+function applyPatch(s) {
+  if (!s || typeof s !== 'object' || Array.isArray(s)) throw new Error('not a patch object');
+  if (s.format && s.format !== PATCH_FORMAT) throw new Error('unknown format "' + s.format + '"');
+  const pl = s.plate || {}, dr = s.drive || {}, gr = s.grains || {};
+  const rn = s.render || {}, au = s.audio || {}, fr = s.frame || {};
+
+  /* 1. base parameter values, before anything is rebuilt from them */
+  modOffset = {};
+  const src = s.params || {};
+  for (const k in src) {
+    const d = paramById[k];
+    if (d && Number.isFinite(src[k])) PB[k] = clampP(d, src[k]);
+  }
+
+  /* 2. discrete plate and drive state */
+  if (GEOM_STEPS.includes(pl.geom)) geom = pl.geom;
+  if (EDGE_STEPS.includes(pl.edge)) edge = pl.edge;
+  if (DISP_STEPS.includes(pl.disp)) disp = pl.disp;
+  if (MAT_KEYS.includes(pl.material)) material = pl.material;
+  if (WAVE_KEYS.includes(dr.waveform)) waveform = dr.waveform;
+  document.getElementById('geom').value = geom;
+  document.getElementById('wave').value = waveform;
+  document.getElementById('material').value = material;
+  document.querySelectorAll('[data-disp]').forEach(x => x.classList.toggle('active', x.dataset.disp === disp));
+
+  if (typeof rn.canvas === 'string' && /^#[0-9a-f]{6}$/i.test(rn.canvas)) {
+    colCanvas = rn.canvas;
+    document.getElementById('col-canvas').value = colCanvas;
+  }
+  if (Number.isInteger(rn.palette) && rn.palette >= 0 && rn.palette <= 3) {
+    palette = rn.palette;
+    document.getElementById('palette').value = String(palette);
+  }
+  ['aspect', 'capres'].forEach(id => {
+    const el = document.getElementById(id), v = fr[id];
+    if (el && v !== undefined && [...el.options].some(o => o.value === v)) el.value = v;
+  });
+
+  /* 3. toggles — routed through the buttons the mouse uses, so classes,
+        aria state and side effects all stay in step */
+  if (typeof rn.grains === 'boolean' && rn.grains !== showGrains) btnGrains.click();
+  if (typeof rn.driver === 'boolean' && rn.driver !== showDrive) document.getElementById('btn-driver').click();
+  if (typeof au.realHz === 'boolean' && au.realHz !== realHz) btnRealHz.click();
+  // snap is set directly: clicking it would re-quantise a frequency the patch
+  // already stores exactly, against a catalogue that has not been rebuilt yet
+  if (typeof dr.snap === 'boolean') { snapOn = dr.snap; btnSnap.classList.toggle('active', snapOn); }
+  if (rn.field === 0 || rn.field === 1 || rn.field === 2) setField(rn.field);
+  if (MED_KEYS.includes(gr.medium)) setMedium(gr.medium);
+
+  fingers = Array.isArray(s.fingers)
+    ? s.fingers.filter(f => f && Number.isFinite(f.x) && Number.isFinite(f.y)).slice(0, 4)
+        .map(f => ({ x: Math.min(1, Math.max(0, f.x)), y: Math.min(1, Math.max(0, f.y)) }))
+    : [];
+
+  /* 4. modulators and the cc map */
+  if (Array.isArray(s.lfos)) {
+    s.lfos.forEach((r, i) => {
+      const l = lfos[i];
+      if (!l || !r) return;
+      if (LFO_WAVES.includes(r.wave)) l.wave = r.wave;
+      if (Number.isFinite(r.rate))  l.rate  = Math.min(8, Math.max(0.01, r.rate));
+      if (Number.isFinite(r.depth)) l.depth = Math.min(1, Math.max(0, r.depth));
+      if (Number.isFinite(r.phase)) l.phase = Math.min(1, Math.max(0, r.phase));
+      l.run = r.run !== false;
+      l.assigns = (r.assigns || [])
+        .filter(a => a && (paramById[a.key] || LFO_ENUMS.includes(a.key)))
+        .map(a => ({ key: a.key, amt: Number.isFinite(a.amt) ? Math.min(1, Math.max(-1, a.amt)) : 1 }));
+    });
+    saveLfo(); buildLfoUI();
+  }
+  // v1 patches wrote midi as a bare array of mappings; v2 wraps it with the
+  // note switch. take either.
+  const midiIn = Array.isArray(s.midi) ? { maps: s.midi } : (s.midi || null);
+  if (midiIn && Array.isArray(midiIn.maps)) {
+    if (typeof midiIn.notes === 'boolean') { midiNotes = midiIn.notes; updateMidiNotesUI(); }
+    midiMappings = midiIn.maps.filter(m => m && MAP_TARGETS[m.key]).map(m => {
+      const t = MAP_TARGETS[m.key];
+      return { id: _mapSeq++, key: m.key,
+               cc: Number.isInteger(m.cc) ? Math.min(127, Math.max(0, m.cc)) : null,
+               lo: Number.isFinite(m.lo) ? m.lo : (t.min ?? 0),
+               hi: Number.isFinite(m.hi) ? m.hi : (t.max ?? 1),
+               target: undefined, smooth: undefined };
+    });
+    mapLearnId = null;
+    saveMidi(); renderMapList();
+  }
+
+  /* 5. rebuild everything from the restored state */
+  updateEdgeButtons();
+  updateDriveEnable();
+  buildCatalogue();
+  Object.keys(PB).forEach(k => {
+    const el = document.getElementById('in-' + k);
+    if (el) el.value = PB[k];
+    applyMod(k);
+  });
+  solveModes(); scatterGrains();
+  computeFrame(); drawSpectrum(); updateTags(); updateUnits();
+  updateSwatches(); updateExportTag(); updateLfoMeters();
+  updateRealUnitsEnable(); updateMidiNotesUI();
+}
+
+let _presetTagTimer = null;
+function setPresetTag(text, bad) {
+  const el = document.getElementById('preset-tag');
+  if (!el) return;
+  el.textContent = text;
+  el.style.color = bad ? 'var(--danger)' : '';
+  clearTimeout(_presetTagTimer);
+  _presetTagTimer = setTimeout(() => { el.textContent = ''; el.style.color = ''; }, bad ? 5000 : 2500);
+}
+
+document.getElementById('btn-export-json').addEventListener('click', () => {
+  try {
+    const blob = new Blob([JSON.stringify(snapshotPatch(), null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.download = 'chladni-' + Date.now() + '.json';
+    a.href = URL.createObjectURL(blob);
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    setPresetTag('exported');
+  } catch (err) {
+    setPresetTag('export failed', true);
+    console.error('patch export failed:', err);
+  }
+});
+
+const presetFile = document.getElementById('preset-file');
+document.getElementById('btn-import-json').addEventListener('click', () => presetFile.click());
+presetFile.addEventListener('change', () => {
+  const f = presetFile.files && presetFile.files[0];
+  if (!f) return;
+  const rd = new FileReader();
+  rd.onload = () => {
+    try {
+      applyPatch(JSON.parse(rd.result));
+      setPresetTag(f.name.replace(/\.json$/i, '').slice(0, 18));
+    } catch (err) {
+      setPresetTag('import failed', true);
+      console.error('patch import failed:', err);
+    }
+    presetFile.value = '';        // re-importing the same file must still fire change
+  };
+  rd.onerror = () => { setPresetTag('unreadable file', true); presetFile.value = ''; };
+  rd.readAsText(f);
+});
+
+/* ================================================================
    midi — device selector + assignable cc mapping list
    ================================================================ */
 
@@ -2679,6 +3148,8 @@ MAP_TARGETS['_snap'] = { label: 'snap to resonance', toggle: true,
   apply: on => { if (on !== snapOn) btnSnap.click(); } };
 MAP_TARGETS['_realhz'] = { label: 'audio: real hz', toggle: true,
   apply: on => { if (on !== realHz) btnRealHz.click(); } };
+MAP_TARGETS['_notes'] = { label: 'notes → resonances', toggle: true,
+  apply: on => { if (on !== midiNotes) btnMidiNotes.click(); } };
 MAP_TARGETS['_driver'] = { label: 'driver dot on / off', toggle: true,
   apply: on => { if (on !== showDrive) document.getElementById('btn-driver').click(); } };
 MAP_TARGETS['_scatter'] = { label: 'scatter grains (trigger)', toggle: true,
@@ -2699,11 +3170,13 @@ lfos.forEach(l => {
 });
 
 let midiAccess = null, midiInputId = '', midiMappings = [], mapLearnId = null, _mapSeq = 1;
+let midiNotes = false;
 
 function saveMidi() {
   try {
     localStorage.setItem('chladni.midi', JSON.stringify({
       input: midiInputId,
+      notes: midiNotes,
       maps: midiMappings.map(m => ({ key: m.key, cc: m.cc, lo: m.lo, hi: m.hi })),
     }));
   } catch (e) {}
@@ -2712,6 +3185,7 @@ function loadMidi() {
   try {
     const s = JSON.parse(localStorage.getItem('chladni.midi') || '{}');
     midiInputId = s.input || '';
+    midiNotes = !!s.notes;
     midiMappings = (s.maps || [])
       .filter(m => MAP_TARGETS[m.key])
       .map(m => ({ id: _mapSeq++, key: m.key, cc: m.cc ?? null, lo: m.lo, hi: m.hi,
@@ -2745,6 +3219,21 @@ function onMidiMessage(e, inputId) {
     ' <b>' + d1 + '</b> = <b>' + d2 + '</b>';
   flashMidi();
 
+  // note on walks the plate's own ladder of resonances, a rung per semitone
+  if (midiNotes && (type === 0x90 || type === 0x80)) {
+    if (type === 0x80 || d2 === 0) return;                      // note off holds the figure
+    const ladder = noteLadder();
+    if (!ladder.length) return;
+    const rung = d1 - Math.round(P.notebase);
+    const i = Math.min(ladder.length - 1, Math.max(0, rung));
+    setParam('freq', ladder[i]);
+    document.getElementById('midi-monitor').innerHTML =
+      'note <b>' + noteName(d1) + '</b> → rung <b>' + (i + 1) + '</b>/' + ladder.length +
+      ' · f <b>' + ladder[i].toFixed(2) + '</b>' +
+      (rung !== i ? ' <i>(clamped)</i>' : '');
+    return;
+  }
+
   if (type !== 0xb0) return;
   if (mapLearnId !== null) {
     const m = midiMappings.find(x => x.id === mapLearnId);
@@ -2769,17 +3258,24 @@ function onMidiMessage(e, inputId) {
   });
 }
 
-// interpolate 7-bit steps so sweeps don't stair-step
+/* interpolate 7-bit steps so sweeps don't stair-step.
+
+   a mapping only writes while it is actually slewing toward a value a cc just
+   sent. once it lands it lets go, so a mapped parameter is yours again — the
+   slider, the keyboard and the lfos all still work on a knob that is bound but
+   silent. the next cc message takes it back. */
 function tickMidi(dt) {
   const ms = P.slew;
   const k = ms <= 1 ? 1 : 1 - Math.exp(-dt * 1000 / ms);
   midiMappings.forEach(m => {
     if (m.target === undefined) return;
     const t = MAP_TARGETS[m.key];
-    if (!t || t.toggle || t.steps) return;
+    if (!t || t.toggle || t.steps) { m.target = undefined; return; }
     m.smooth += (m.target - m.smooth) * k;
-    if (Math.abs(m.target - m.smooth) < 1e-5) m.smooth = m.target;
+    const landed = Math.abs(m.target - m.smooth) < 1e-5;
+    if (landed) m.smooth = m.target;
     t.apply(m.lo + m.smooth * (m.hi - m.lo));
+    if (landed) m.target = undefined;
   });
 }
 
@@ -2842,13 +3338,40 @@ function renderMapList() {
     ind.className = 'map-ind'; ind.id = 'map-ind-' + m.id;
     row.appendChild(ind);
 
+    // the cc number is editable by hand as well as by learn — plenty of gear is
+    // easier to read off a manual than to coax into sending the one knob you want
     const learn = document.createElement('button');
     learn.className = 'map-cc-btn' + (mapLearnId === m.id ? ' learning' : (m.cc !== null ? ' bound' : ''));
-    learn.textContent = mapLearnId === m.id ? 'learn…' : (m.cc !== null ? 'cc ' + m.cc : 'learn');
+    learn.textContent = mapLearnId === m.id ? 'learn…' : 'learn';
+    learn.title = 'listen for the next cc and bind it';
     learn.addEventListener('click', () => {
       mapLearnId = (mapLearnId === m.id) ? null : m.id;
       renderMapList();
     });
+
+    const ccIn = document.createElement('input');
+    ccIn.type = 'number'; ccIn.className = 'map-cc-num';
+    ccIn.min = '0'; ccIn.max = '127'; ccIn.step = '1';
+    ccIn.placeholder = 'cc';
+    ccIn.value = m.cc === null || m.cc === undefined ? '' : m.cc;
+    ccIn.title = 'cc number — type it in, or use learn';
+    ccIn.setAttribute('aria-label', 'cc number for ' + t.label);
+    ccIn.addEventListener('input', () => {
+      const raw = ccIn.value.trim();
+      if (raw === '') m.cc = null;
+      else {
+        const v = parseInt(raw, 10);
+        if (!Number.isFinite(v)) return;
+        m.cc = Math.min(127, Math.max(0, v));
+      }
+      // typing a number is a decision — drop any learn that was armed on this row
+      if (mapLearnId === m.id) { mapLearnId = null; learn.className = 'map-cc-btn'; learn.textContent = 'learn'; row.classList.remove('learning'); }
+      m.target = undefined; m.smooth = undefined;
+      learn.classList.toggle('bound', m.cc !== null);
+      saveMidi();
+    });
+    ccIn.addEventListener('blur', () => { ccIn.value = m.cc === null ? '' : m.cc; });
+    row.appendChild(ccIn);
     row.appendChild(learn);
 
     if (!t.toggle && !t.steps) {
@@ -2886,6 +3409,19 @@ function renderMapList() {
 
 document.getElementById('midi-input-select').addEventListener('change', e => {
   midiInputId = e.target.value; saveMidi();
+});
+
+const btnMidiNotes = document.getElementById('btn-midinotes');
+function updateMidiNotesUI() {
+  btnMidiNotes.classList.toggle('active', midiNotes);
+  const wrap = document.getElementById('param-notebase');
+  if (wrap) wrap.classList.toggle('disabled', !midiNotes);
+  const inp = document.getElementById('in-notebase');
+  if (inp) inp.disabled = !midiNotes;
+}
+btnMidiNotes.addEventListener('click', () => {
+  midiNotes = !midiNotes;
+  updateMidiNotesUI(); saveMidi();
 });
 document.getElementById('map-add').addEventListener('click', () => addMapping());
 document.getElementById('btn-midiclear').addEventListener('click', () => {
@@ -3053,8 +3589,16 @@ document.getElementById('capres').addEventListener('change', updateExportTag);
 
 /* ---- keys ---- */
 addEventListener('keydown', e => {
-  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
   const k = e.key.toLowerCase();
+  // a selected parameter owns the arrow keys, wherever focus happens to be.
+  // a focused slider is excluded above and steps itself natively.
+  if (k === 'arrowup' || k === 'arrowdown') {
+    if (!selectedParam) return;
+    e.preventDefault();
+    nudgeParam(selectedParam, k === 'arrowup' ? 1 : -1, e.shiftKey);
+    return;
+  }
   if (k === ' ') { e.preventDefault(); btnPause.click(); }
   else if (k === 'r') scatterGrains();
   else if (k === 'g') document.getElementById('btn-rand').click();
@@ -3085,6 +3629,8 @@ loadLfo();
 buildLfoUI();
 updateDriveEnable();
 updateEdgeButtons();
+updateRealUnitsEnable();
+updateMidiNotesUI();
 setMedium(medium);
 updateSwatches();
 buildCatalogue();
