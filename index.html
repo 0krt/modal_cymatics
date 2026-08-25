@@ -6,15 +6,18 @@
 <title>CHLADNI // MODAL</title>
 <style>
   :root {
-    --control-border: #5c606d;   /* 3.03:1 on panel - WCAG 1.4.11 */
+    /* contrast is quoted against the panel surface, which composites to ~#0d1015 */
+    --control-border: #767c8c;   /* 4.57:1 on panel - WCAG 1.4.11 wants 3:1 */
     --focus: var(--accent);
 
+    --panel-w: 322px;
+
     --bg: #0a0b0e;
-    --panel: rgba(16, 18, 23, 0.88);
-    --line: rgba(255, 255, 255, 0.08);
-    --line-strong: rgba(255, 255, 255, 0.16);
-    --ink: #d6dae2;
-    --ink-dim: #828999;
+    --panel: rgba(13, 15, 21, 0.94);  /* nearly opaque: panel text never fights the field */
+    --line: rgba(255, 255, 255, 0.12);
+    --line-strong: rgba(255, 255, 255, 0.26);
+    --ink: #e7eaf1;              /* 15.8:1 */
+    --ink-dim: #9aa2b4;          /*  7.4:1 - was #828999 at 5.4:1, and set in 9px type */
     --accent: #e8c26a;
     --accent-dim: rgba(232, 194, 106, 0.35);
     --mod: #7fb2ff;                          /* modulation, so it never reads as drive */
@@ -35,16 +38,16 @@
   }
   /* the field runs full-bleed here, so the chrome needs its own contrast */
   #header, #status { text-shadow: 0 1px 4px rgba(0, 0, 0, 0.95), 0 0 14px rgba(0, 0, 0, 0.8); }
-  #header h1 { font-size: 13px; font-weight: 600; letter-spacing: 0.35em; color: var(--ink); }
+  #header h1 { font-size: 14px; font-weight: 600; letter-spacing: 0.35em; color: var(--ink); }
   #header h1 em { font-style: normal; color: var(--accent); }
   #header .sub {
-    margin-top: 5px; font-size: 10px; letter-spacing: 0.22em;
+    margin-top: 6px; font-size: 11px; letter-spacing: 0.2em;
     color: var(--ink-dim); text-transform: uppercase;
   }
 
   #status {
     position: fixed; bottom: 0; left: 0; padding: 14px 22px;
-    font-size: 10px; letter-spacing: 0.14em; color: var(--ink-dim);
+    font-size: 11px; letter-spacing: 0.14em; color: var(--ink-dim);
     pointer-events: none; user-select: none; z-index: 5; text-transform: uppercase;
   }
   #status .k { color: var(--ink); }
@@ -64,7 +67,7 @@
   @keyframes blink { 50% { opacity: 0.25; } }
 
   #panel {
-    position: fixed; top: 0; right: 0; bottom: 0; width: 292px; z-index: 10;
+    position: fixed; top: 0; right: 0; bottom: 0; width: var(--panel-w); z-index: 10;
     background: var(--panel); backdrop-filter: blur(14px);
     border-left: 1px solid var(--line);
     overflow-y: auto; overscroll-behavior: contain;
@@ -75,45 +78,55 @@
     overflow-anchor: none;
   }
   #panel.hidden { transform: translateX(100%); }
-  #panel::-webkit-scrollbar { width: 4px; }
+  #panel::-webkit-scrollbar { width: 7px; }
   #panel::-webkit-scrollbar-thumb { background: var(--line-strong); }
 
   #paneltoggle {
-    position: fixed; top: 14px; right: 306px; z-index: 11;
-    background: var(--panel); border: 1px solid var(--line-strong); color: var(--ink-dim);
-    font-family: var(--mono); font-size: 10px; letter-spacing: 0.2em;
-    padding: 6px 10px; cursor: pointer; border-radius: 3px; transition: right 0.25s ease;
+    position: fixed; top: 14px; right: calc(var(--panel-w) + 14px); z-index: 11;
+    background: var(--panel); border: 1px solid var(--line-strong); color: var(--ink);
+    font-family: var(--mono); font-size: 13px; letter-spacing: 0.2em;
+    padding: 7px 11px; cursor: pointer; border-radius: 3px; transition: right 0.25s ease;
   }
   body.panel-hidden #paneltoggle { right: 16px; }
   #paneltoggle:hover { color: var(--accent); border-color: var(--accent-dim); }
 
-  .section { border-bottom: 1px solid var(--line); padding: 16px 18px 18px; }
-  .section h2 {
+  .section { border-bottom: 1px solid var(--line); padding: 0 16px 18px; }
+  /* the title is a bar across the section, so a scan down the panel reads as a
+     list of headings rather than as one undifferentiated column of small type */
+  .section > h2 {
     display: flex; align-items: center; gap: 8px;
-    font-size: 9px; font-weight: 600; letter-spacing: 0.3em; text-transform: uppercase;
-    color: var(--ink-dim); margin-bottom: 14px;
+    margin: 0 -16px 14px; padding: 11px 16px;
+    font-size: 12px; font-weight: 600; letter-spacing: 0.22em; text-transform: uppercase;
+    color: var(--accent); background: rgba(232, 194, 106, 0.05);
+    border-bottom: 1px solid var(--line);
+    cursor: pointer; user-select: none;
   }
+  .section > h2:hover { background: rgba(232, 194, 106, 0.1); }
   .section h2 .tag {
-    margin-left: auto; color: var(--accent); letter-spacing: 0.1em;
+    margin-left: auto; color: var(--ink); font-size: 10.5px; letter-spacing: 0.08em;
+    font-weight: 400; text-transform: none;
     white-space: nowrap;                 /* a wrapping tag would grow the header */
   }
   .infobtn {
-    flex: none; width: 15px; height: 15px; padding: 0; line-height: 1;
-    font-family: var(--mono); font-size: 9px; letter-spacing: 0;
-    color: var(--ink-dim); background: transparent;
-    border: 1px solid var(--line-strong); border-radius: 50%; cursor: pointer;
+    flex: none; width: 18px; height: 18px; min-width: 18px; min-height: 18px;
+    padding: 0; line-height: 1;
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0;
+    color: var(--ink); background: transparent;
+    border: 1px solid var(--control-border); border-radius: 50%; cursor: pointer;
   }
-  .infobtn:hover { color: var(--accent); border-color: var(--accent-dim); }
+  .infobtn:hover { color: var(--accent); border-color: var(--accent); }
   .infobtn.open { color: var(--bg); background: var(--accent); border-color: var(--accent); }
 
-  /* collapsible section bodies */
-  .section.fold h2 { cursor: pointer; margin-bottom: 0; }
-  .section.fold h2::after {
-    content: '−'; margin-left: 4px; color: var(--ink-dim); font-size: 11px;
+  /* every section folds away from its own title bar */
+  .section > h2::after {
+    content: '\25BE'; margin-left: 2px; font-size: 10px; color: var(--ink);
+    transition: transform 0.15s ease;
   }
-  .section.fold.collapsed h2::after { content: '+'; }
-  .section.fold .foldbody { margin-top: 14px; }
-  .section.fold.collapsed .foldbody { display: none; }
+  .section.collapsed > h2::after { transform: rotate(-90deg); }
+  .section.collapsed > h2 { margin-bottom: 0; border-bottom: none; }
+  .section.collapsed { padding-bottom: 0; }
+  .section.collapsed > *:not(h2) { display: none !important; }
+  .section .foldbody { margin-top: 0; }
 
   .param { margin-bottom: 12px; }
   .param.disabled { opacity: 0.3; pointer-events: none; }
@@ -123,10 +136,10 @@
   .section.inactive > .sublabel,
   .section.inactive > #units-out { opacity: 0.32; pointer-events: none; }
   .section.inactive h2 .tag { color: var(--ink-dim); }
-  .param .row1 { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 5px; }
-  .param label { font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink); }
+  .param .row1 { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 5px; }
+  .param label { font-size: 11.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink); }
   .param .val {
-    font-size: 10px; color: var(--accent); letter-spacing: 0.05em;
+    font-size: 11.5px; color: var(--accent); letter-spacing: 0.05em; font-weight: 500;
     font-variant-numeric: tabular-nums;
   }
   /* the keyboard-selected parameter — up / down arrows step this one */
@@ -137,14 +150,20 @@
   input[type="range"] {
     flex: 1; -webkit-appearance: none; appearance: none; height: 18px; background: transparent; cursor: ew-resize;
   }
-  input[type="range"]::-webkit-slider-runnable-track { height: 2px; background: var(--line-strong); }
-  input[type="range"]::-webkit-slider-thumb {
-    -webkit-appearance: none; appearance: none; width: 9px; height: 9px; margin-top: -3.5px;
-    background: var(--accent); border-radius: 50%;
+  input[type="range"]::-webkit-slider-runnable-track {
+    height: 4px; border-radius: 3px; background: #3a3f4c;
   }
-  input[type="range"]::-moz-range-track { height: 2px; background: var(--line-strong); }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; width: 13px; height: 13px; margin-top: -4.5px;
+    background: var(--accent); border-radius: 50%;
+    box-shadow: 0 0 0 3px rgba(232, 194, 106, 0.16);
+    transition: transform 0.1s, box-shadow 0.1s;
+  }
+  input[type="range"]:hover::-webkit-slider-thumb { transform: scale(1.25); }
+  input[type="range"]::-moz-range-track { height: 4px; border-radius: 3px; background: #3a3f4c; }
   input[type="range"]::-moz-range-thumb {
-    width: 9px; height: 9px; background: var(--accent); border: none; border-radius: 50%;
+    width: 13px; height: 13px; background: var(--accent); border: none; border-radius: 50%;
+    box-shadow: 0 0 0 3px rgba(232, 194, 106, 0.16);
   }
 
   /* ---------- midi cc mapping ---------- */
@@ -156,15 +175,15 @@
   .midi-dot.connected { background: var(--accent); }
   .midi-dot.active { background: #fff; }
   .midi-dot.error { background: var(--danger); }
-  .midi-head span { font-size: 9.5px; letter-spacing: 0.08em; color: var(--ink-dim); }
+  .midi-head span { font-size: 11px; letter-spacing: 0.06em; color: var(--ink-dim); }
 
   #midi-monitor {
-    font-size: 9px; letter-spacing: 0.08em; color: var(--ink-dim);
-    padding: 5px 7px; margin-bottom: 10px; border-radius: 2px;
-    background: rgba(255, 255, 255, 0.03); border-left: 2px solid var(--line-strong);
+    font-size: 10.5px; letter-spacing: 0.06em; color: var(--ink-dim);
+    padding: 7px 9px; margin-bottom: 10px; border-radius: 2px;
+    background: rgba(255, 255, 255, 0.045); border-left: 3px solid var(--line-strong);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  #midi-monitor b { color: var(--accent); font-weight: 400; }
+  #midi-monitor b { color: var(--accent); font-weight: 500; }
 
   .map-row {
     display: flex; flex-wrap: wrap; align-items: center; gap: 5px;
@@ -174,17 +193,17 @@
   .map-row.learning { border-left-color: var(--accent); }
   .map-target {
     flex: 1 1 100%; margin-bottom: 0;
-    font-size: 10px; padding: 3px 6px; color: var(--accent);
+    font-size: 11px; padding: 5px 6px; color: var(--accent);
   }
   .map-cc-btn {
-    font-family: var(--mono); font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase;
-    color: var(--ink-dim); background: transparent; border: 1px solid var(--line-strong);
-    border-radius: 2px; padding: 3px 7px; cursor: pointer; white-space: nowrap;
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase;
+    color: var(--ink-dim); background: transparent; border: 1px solid var(--control-border);
+    border-radius: 2px; padding: 4px 8px; cursor: pointer; white-space: nowrap;
   }
   .map-cc-btn:hover { color: var(--ink); border-color: var(--ink-dim); }
   .map-cc-num {
-    width: 46px; background: #0d0f13; border: 1px solid var(--line-strong); color: var(--accent);
-    font-family: var(--mono); font-size: 9px; padding: 2px 4px; border-radius: 2px; text-align: right;
+    width: 50px; background: #14171e; border: 1px solid var(--control-border); color: var(--accent);
+    font-family: var(--mono); font-size: 10px; padding: 3px 5px; border-radius: 2px; text-align: right;
   }
   .map-cc-num::placeholder { color: var(--ink-dim); }
   .map-cc-num:focus:not(:focus-visible) { outline: none; border-color: var(--accent-dim); }
@@ -193,61 +212,69 @@
     color: var(--bg); background: var(--accent); border-color: var(--accent);
     animation: blink 0.8s steps(2, start) infinite;
   }
-  .map-range { display: flex; align-items: center; gap: 3px; font-size: 9px; color: var(--ink-dim); }
+  .map-range { display: flex; align-items: center; gap: 3px; font-size: 10px; color: var(--ink-dim); }
   .map-range input {
-    width: 44px; background: #0d0f13; border: 1px solid var(--line-strong); color: var(--ink);
-    font-family: var(--mono); font-size: 9px; padding: 2px 4px; border-radius: 2px; text-align: right;
+    width: 48px; background: #14171e; border: 1px solid var(--control-border); color: var(--ink);
+    font-family: var(--mono); font-size: 10px; padding: 3px 5px; border-radius: 2px; text-align: right;
   }
   .map-range input:focus:not(:focus-visible) { outline: none; border-color: var(--accent-dim); }
   .map-del {
-    margin-left: auto; font-family: var(--mono); font-size: 11px; line-height: 1;
+    margin-left: auto; font-family: var(--mono); font-size: 13px; line-height: 1;
     color: var(--ink-dim); background: transparent; border: none; cursor: pointer; padding: 2px 4px;
   }
   .map-del:hover { color: var(--danger); }
   .map-ind { width: 5px; height: 5px; border-radius: 50%; background: var(--line-strong); flex: none; }
   .map-ind.active { background: var(--accent); }
   #map-add {
-    width: 100%; font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em;
+    width: 100%; font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em;
     text-transform: uppercase; color: var(--ink-dim); background: transparent;
-    border: 1px dashed var(--line-strong); border-radius: 3px; padding: 7px; cursor: pointer;
+    border: 1px dashed var(--control-border); border-radius: 3px; padding: 8px; cursor: pointer;
   }
-  #map-add:hover { color: var(--accent); border-color: var(--accent-dim); }
+  #map-add:hover { color: var(--accent); border-color: var(--accent); }
 
   .btnrow { display: flex; gap: 6px; flex-wrap: wrap; }
   button.act {
-    font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
-    color: var(--ink); background: transparent; border: 1px solid var(--line-strong);
-    border-radius: 3px; padding: 7px 10px; cursor: pointer; flex: 1; min-width: 70px;
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--ink); background: rgba(255, 255, 255, 0.04); border: 1px solid var(--control-border);
+    border-radius: 3px; padding: 8px 10px; cursor: pointer; flex: 1; min-width: 70px;
   }
-  button.act:hover { border-color: var(--accent-dim); color: var(--accent); }
-  button.act.primary { border-color: var(--accent-dim); color: var(--accent); }
+  button.act:hover { border-color: var(--accent); color: var(--accent); }
+  button.act.primary { border-color: var(--accent); color: var(--accent); }
   button.act.armed { border-color: var(--danger); color: var(--danger); }
 
   .toolrow { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
   button.tool {
-    flex: 1; min-width: 50px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em;
-    text-transform: uppercase; color: var(--ink-dim); background: transparent;
-    border: 1px solid var(--line-strong); border-radius: 3px; padding: 7px 4px; cursor: pointer;
+    flex: 1; min-width: 50px; font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--ink-dim); background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--control-border); border-radius: 3px; padding: 8px 5px; cursor: pointer;
   }
-  button.tool:hover { color: var(--ink); }
-  button.tool.active { color: var(--accent); border-color: var(--accent-dim); }
+  button.tool:hover { color: var(--ink); border-color: var(--ink-dim); }
+  /* an armed tool is filled, not merely tinted - the old outline read as noise */
+  button.tool.active {
+    color: #14100a; background: var(--accent); border-color: var(--accent); font-weight: 600;
+  }
+  button.tool.active:hover { color: #14100a; }
 
   select {
-    width: 100%; font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em;
-    color: var(--ink); background: #0d0f13; border: 1px solid var(--line-strong);
-    border-radius: 3px; padding: 6px 8px; cursor: pointer; margin-bottom: 10px;
+    width: 100%; font-family: var(--mono); font-size: 12px; letter-spacing: 0.04em;
+    color: var(--ink); background: #14171e; border: 1px solid var(--control-border);
+    border-radius: 3px; padding: 8px 8px; cursor: pointer; margin-bottom: 10px;
   }
   select:focus:not(:focus-visible) { outline: none; border-color: var(--accent-dim); }
-  .sublabel { font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink-dim); margin: 2px 0 5px; }
+  .section > h2 + .sublabel, .foldbody > .sublabel:first-child { margin-top: 2px; }
+  .sublabel {
+    font-size: 10.5px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink);
+    margin: 14px 0 6px; padding-bottom: 4px; border-bottom: 1px solid var(--line);
+  }
 
   .colorrow { display: flex; gap: 6px; margin-bottom: 12px; }
   .colorrow label {
     flex: 1; display: flex; flex-direction: column; gap: 4px; align-items: stretch;
-    font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-dim);
+    font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-dim);
   }
   .colorrow input[type="color"] {
-    -webkit-appearance: none; appearance: none; width: 100%; height: 20px; padding: 0;
-    background: transparent; border: 1px solid var(--line-strong); border-radius: 3px; cursor: pointer;
+    -webkit-appearance: none; appearance: none; width: 100%; height: 26px; padding: 0;
+    background: transparent; border: 1px solid var(--control-border); border-radius: 3px; cursor: pointer;
   }
   .colorrow input[type="color"]::-webkit-color-swatch-wrapper { padding: 2px; }
   .colorrow input[type="color"]::-webkit-color-swatch { border: none; border-radius: 2px; }
@@ -255,9 +282,9 @@
 
   /* info text is folded away behind the (i) button in each section header */
   .hint {
-    display: none; font-size: 9.5px; line-height: 1.7; color: var(--ink-dim); letter-spacing: 0.04em;
-    margin-top: 10px; padding: 9px 10px; border-radius: 3px;
-    background: rgba(255, 255, 255, 0.03); border-left: 2px solid var(--accent-dim);
+    display: none; font-size: 11px; line-height: 1.75; color: var(--ink-dim); letter-spacing: 0.02em;
+    margin-top: 12px; padding: 11px 12px; border-radius: 3px;
+    background: rgba(255, 255, 255, 0.045); border-left: 3px solid var(--accent-dim);
   }
   .hint.open { display: block; }
   .hint b { color: var(--ink); font-weight: 400; }
@@ -267,15 +294,15 @@
   }
 
   /* modal spectrum readout */
-  #spectrum { width: 100%; height: 64px; display: block; margin-bottom: 8px; }
+  #spectrum { width: 100%; height: 76px; display: block; margin: 4px 0 8px; }
   /* a fixed height: the list is rewritten on every solve, and letting it grow
      and shrink made the whole panel jump while an lfo swept the frequency */
   #modelist {
-    font-size: 9.5px; line-height: 1.75; color: var(--ink-dim); letter-spacing: 0.06em;
-    height: 190px; overflow-y: auto; overflow-x: hidden;
+    font-size: 11px; line-height: 1.8; color: var(--ink-dim); letter-spacing: 0.04em;
+    height: 200px; overflow-y: auto; overflow-x: hidden;
   }
   #modelist .hot { color: var(--accent); }
-  #modelist::-webkit-scrollbar { width: 3px; }
+  #modelist::-webkit-scrollbar { width: 6px; }
   #modelist::-webkit-scrollbar-thumb { background: var(--line-strong); }
 
   #err {
@@ -284,7 +311,7 @@
   }
 
   /* two-column tool rows — "supported" and "powder → anti" overrun a
-     four-across flex row inside a 292px panel */
+     four-across flex row inside the panel */
   .toolrow.grid2 { display: grid; grid-template-columns: repeat(2, 1fr); }
   .toolrow.grid2 button.tool { width: 100%; min-width: 0; letter-spacing: 0.06em; padding: 7px 6px; }
 
@@ -294,27 +321,28 @@
   /* mode rows are tuning targets, not just a readout */
   button.moderow {
     display: block; width: 100%; text-align: left; white-space: nowrap;
-    font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.05em;
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.03em;
     color: var(--ink-dim); background: transparent; border: none; border-radius: 2px;
-    padding: 2px 3px; cursor: pointer;
+    padding: 3px 4px; cursor: pointer;
   }
   button.moderow:hover { color: var(--ink); background: rgba(255, 255, 255, 0.06); }
   button.moderow.hot { color: var(--accent); }
   button.moderow .hz { color: var(--ink-dim); }
+  button.moderow.hot .hz { color: var(--accent-dim); }
 
   .swatchrow { display: flex; gap: 6px; margin-bottom: 10px; }
   .swatch {
-    flex: 1; height: 20px; border: 1px solid var(--line-strong); border-radius: 3px;
+    flex: 1; height: 24px; border: 1px solid var(--control-border); border-radius: 3px;
     display: flex; align-items: center; justify-content: center;
-    font-size: 8px; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(0, 0, 0, 0.55);
+    font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(0, 0, 0, 0.72);
   }
 
   #units-out {
-    font-size: 9px; letter-spacing: 0.06em; color: var(--ink-dim);
-    padding: 5px 7px; margin-bottom: 10px; border-radius: 2px;
-    background: rgba(255, 255, 255, 0.03); border-left: 2px solid var(--line-strong);
+    font-size: 10.5px; line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-dim);
+    padding: 7px 9px; margin-bottom: 10px; border-radius: 2px;
+    background: rgba(255, 255, 255, 0.045); border-left: 3px solid var(--line-strong);
   }
-  #units-out b { color: var(--accent); font-weight: 400; }
+  #units-out b { color: var(--accent); font-weight: 500; }
 
   /* ---------- lfo ---------- */
   .lfo {
@@ -322,39 +350,39 @@
     background: rgba(255, 255, 255, 0.025); border-left: 2px solid var(--mod-dim);
   }
   .lfo-head { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
-  .lfo-num { font-size: 9px; letter-spacing: 0.24em; color: var(--mod); }
-  .lfo-meter { flex: 1; height: 3px; background: var(--line-strong); border-radius: 2px; position: relative; }
-  .lfo-meter i { position: absolute; top: -1px; height: 5px; width: 3px; background: var(--mod); border-radius: 2px; }
+  .lfo-num { font-size: 10.5px; letter-spacing: 0.2em; color: var(--mod); font-weight: 600; }
+  .lfo-meter { flex: 1; height: 4px; background: var(--line-strong); border-radius: 2px; position: relative; }
+  .lfo-meter i { position: absolute; top: -2px; height: 8px; width: 4px; background: var(--mod); border-radius: 2px; }
   .lfo-run {
-    font-family: var(--mono); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase;
-    color: var(--ink-dim); background: transparent; border: 1px solid var(--line-strong);
-    border-radius: 2px; padding: 3px 7px; cursor: pointer;
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--ink-dim); background: transparent; border: 1px solid var(--control-border);
+    border-radius: 2px; padding: 4px 8px; cursor: pointer;
   }
-  .lfo-run.active { color: var(--mod); border-color: var(--mod-dim); }
+  .lfo-run.active { color: #0b1220; background: var(--mod); border-color: var(--mod); font-weight: 600; }
   .lfo-wave { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-bottom: 10px; }
   .lfo-wave button {
-    font-family: var(--mono); font-size: 9px; letter-spacing: 0.04em; text-transform: uppercase;
-    color: var(--ink-dim); background: transparent; border: 1px solid var(--line-strong);
-    border-radius: 2px; padding: 4px 2px; cursor: pointer;
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.03em; text-transform: uppercase;
+    color: var(--ink-dim); background: transparent; border: 1px solid var(--control-border);
+    border-radius: 2px; padding: 5px 2px; cursor: pointer;
   }
   .lfo-wave button:hover { color: var(--ink); }
-  .lfo-wave button.active { color: var(--mod); border-color: var(--mod-dim); }
+  .lfo-wave button.active { color: #0b1220; background: var(--mod); border-color: var(--mod); font-weight: 600; }
   .lfo .param { margin-bottom: 9px; }
   .lfo .param .val { color: var(--mod); }
   .lfo input[type="range"]::-webkit-slider-thumb { background: var(--mod); }
   .lfo input[type="range"]::-moz-range-thumb { background: var(--mod); }
   .lfo-assign { display: flex; align-items: center; gap: 5px; margin-bottom: 5px; }
-  .lfo-assign select { flex: 1 1 auto; width: auto; min-width: 0; margin: 0; font-size: 10px; padding: 3px 5px; }
+  .lfo-assign select { flex: 1 1 auto; width: auto; min-width: 0; margin: 0; font-size: 11px; padding: 4px 6px; }
   .lfo-assign input[type=number] {
-    width: 48px; background: #0d0f13; border: 1px solid var(--line-strong); color: var(--ink);
-    font-family: var(--mono); font-size: 9px; padding: 2px 4px; border-radius: 2px; text-align: right;
+    width: 52px; background: #14171e; border: 1px solid var(--control-border); color: var(--ink);
+    font-family: var(--mono); font-size: 10px; padding: 3px 5px; border-radius: 2px; text-align: right;
   }
   .lfo-add {
-    width: 100%; font-family: var(--mono); font-size: 9px; letter-spacing: 0.12em;
+    width: 100%; font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.1em;
     text-transform: uppercase; color: var(--ink-dim); background: transparent;
-    border: 1px dashed var(--line-strong); border-radius: 3px; padding: 5px; cursor: pointer;
+    border: 1px dashed var(--control-border); border-radius: 3px; padding: 7px; cursor: pointer;
   }
-  .lfo-add:hover { color: var(--mod); border-color: var(--mod-dim); }
+  .lfo-add:hover { color: var(--mod); border-color: var(--mod); }
 
   /* ==================================================================
      accessibility layer  -  WCAG 2.2 AA
@@ -436,7 +464,7 @@
 <button id="paneltoggle" aria-label="Show or hide the controls panel" aria-expanded="true" aria-controls="panel">☰</button>
 
 <div id="panel">
-  <div class="section fold collapsed" id="sec-about">
+  <div class="section collapsed" id="sec-about">
     <h2>About <span class="tag">read me</span></h2>
     <div class="foldbody">
       <div class="hint open" style="margin-top:0">
@@ -480,7 +508,7 @@
     </div>
   </div>
 
-  <div class="section">
+  <div class="section" id="sec-plate">
     <h2>Plate <span class="tag" id="plate-tag"></span><button class="infobtn" data-info="i-plate">i</button></h2>
     <select aria-label="Plate geometry" id="geom">
       <option value="rect">rectangle</option>
@@ -518,7 +546,7 @@
     </div>
   </div>
 
-  <div class="section">
+  <div class="section" id="sec-drive">
     <h2>Drive <span class="tag" id="drive-tag"></span><button class="infobtn" data-info="i-drive">i</button></h2>
     <select aria-label="Excitation waveform" id="wave">
       <option value="sine" selected>sine — single partial</option>
@@ -545,7 +573,29 @@
     </div>
   </div>
 
-  <div class="section">
+  <div class="section" id="sec-presets">
+    <h2>Presets <span class="tag" id="preset-tag"></span><button class="infobtn" data-info="i-preset">i</button></h2>
+    <select aria-label="Preset" id="preset"></select>
+    <div class="btnrow">
+      <button class="act" id="btn-pause">pause</button>
+      <button class="act" id="btn-rand">randomize</button>
+    </div>
+    <div class="sublabel" style="margin-top:12px">patch file</div>
+    <div class="btnrow">
+      <button class="act" id="btn-export-json">export json</button>
+      <button class="act" id="btn-import-json">import json</button>
+    </div>
+    <input type="file" id="preset-file" accept="application/json,.json" class="sr-only" aria-label="Import a preset json file">
+    <div class="hint" id="i-preset">
+      <b>export json</b> writes the whole patch to a file — plate, drive, grains, colours,
+      rotation, both lfos and their targets, and the midi cc map. <b>import json</b> reads one
+      back and applies it wholesale, so a patch travels between machines and browsers.<br><br>
+      the built-in preset list above is unchanged: it only names a handful of fields and leaves
+      everything else where you left it. an imported json replaces the lot.
+    </div>
+  </div>
+
+  <div class="section" id="sec-audio">
     <h2>Audio <span class="tag" id="audio-tag"></span><button class="infobtn" data-info="i-audio">i</button></h2>
     <div class="toolrow grid2">
       <button class="tool" id="btn-audio">output off</button>
@@ -585,7 +635,7 @@
     </div>
   </div>
 
-  <div class="section">
+  <div class="section" id="sec-drivept">
     <h2>Excitation point <span class="tag"></span><button class="infobtn" data-info="i-pt">i</button></h2>
     <div id="params-drivept"></div>
     <div class="btnrow">
@@ -603,30 +653,34 @@
     </div>
   </div>
 
-  <div class="section">
+  <div class="section" id="sec-grains">
     <h2>Grains <span class="tag" id="grain-tag"></span><button class="infobtn" data-info="i-grain">i</button></h2>
-    <div class="toolrow grid2">
-      <button class="tool active" data-med="sand">sand → nodes</button>
-      <button class="tool" data-med="powder">powder → anti</button>
-      <button class="tool" data-med="both">both at once</button>
-    </div>
     <div id="params-grain"></div>
+    <div class="toolrow">
+      <button class="tool active" id="btn-evenfeed">even feed</button>
+    </div>
     <div class="btnrow">
       <button class="act" id="btn-reseed">scatter grains</button>
     </div>
     <div class="hint" id="i-grain">
       coarse sand collects at <b>nodes</b>. very fine powder does the opposite — acoustic streaming in
-      the air carries it to the <b>antinodes</b>. <b>both at once</b> runs two populations in two
-      colours, so the nodal and antinodal figures appear together; <b>fine fraction</b> is the split.<br><br>
+      the air carries it to the <b>antinodes</b>. which of the two is on the plate is picked under
+      <b>Rendering → medium</b>; <b>both at once</b> runs two populations in two colours, so the
+      nodal and antinodal figures appear together, and <b>fine fraction</b> is the split.<br><br>
       <b>feed rate</b> continuously recycles grains back onto the plate, oldest first, as if you were
       sprinkling steadily while it runs. at zero the population is static.<br><br>
+      <b>even feed</b> gives each population its own recycle cursor. it is what stops
+      <b>both at once</b> from pulsing: with one cursor for the whole population the block of
+      freshly scattered grains sweeps through the sand first and the powder after it, so each
+      figure blurs and sharpens in turn, once per turnover — a beat at the feed rate, most obvious
+      with feed high. switch it off to get that sweep back.<br><br>
       <b>hop threshold</b> is the local amplitude a grain needs before it will move at all — real sand
       only migrates once the plate's acceleration beats gravity. <b>jitter</b> is random bouncing,
       scaled by the local amplitude, so it competes with the crawl and fuzzes the lines.
     </div>
   </div>
 
-  <div class="section">
+  <div class="section" id="sec-render">
     <h2>Rendering <span class="tag"></span><button class="infobtn" data-info="i-render">i</button></h2>
     <div class="sublabel">field</div>
     <div class="toolrow" id="fieldmode">
@@ -644,6 +698,12 @@
       <button class="tool active" id="btn-grains">grains</button>
       <button class="tool active" id="btn-driver">driver dot</button>
     </div>
+    <div class="sublabel">medium</div>
+    <div class="toolrow grid2">
+      <button class="tool active" data-med="sand">sand → nodes</button>
+      <button class="tool" data-med="powder">powder → anti</button>
+      <button class="tool" data-med="both">both at once</button>
+    </div>
     <div class="sublabel">colours</div>
     <div class="colorrow">
       <label for="col-canvas">canvas<input type="color" id="col-canvas" value="#0a0b0e"></label>
@@ -658,6 +718,9 @@
     <div class="hint" id="i-render">
       <b>motion</b> is the live plate oscillation — the real drive is far too fast to see, so this
       slows it down. it does not affect where the grains settle.<br><br>
+      <b>medium</b> picks what is on the plate: coarse sand crawling to the nodes, fine powder
+      blown to the antinodes, or both populations at once in two colours. the rest of their
+      behaviour — count, feed, crawl, the fine fraction — lives under <b>Grains</b>.<br><br>
       <b>field</b>: <code>motion</code> shows instantaneous displacement, <code>rms</code> shows the
       time-averaged amplitude the grains actually respond to.<br><br>
       <b>trails</b> paints the previous frame back over the new one, so a grain leaves a fading
@@ -678,7 +741,7 @@
     </div>
   </div>
 
-  <div class="section">
+  <div class="section" id="sec-modes">
     <h2>Modes <span class="tag" id="mode-tag"></span><button class="infobtn" data-info="i-modes">i</button></h2>
     <div id="modelist"></div>
     <div class="hint" id="i-modes">
@@ -701,29 +764,7 @@
     </div>
   </div>
 
-  <div class="section">
-    <h2>Presets <span class="tag" id="preset-tag"></span><button class="infobtn" data-info="i-preset">i</button></h2>
-    <select aria-label="Preset" id="preset"></select>
-    <div class="btnrow">
-      <button class="act" id="btn-pause">pause</button>
-      <button class="act" id="btn-rand">randomize</button>
-    </div>
-    <div class="sublabel" style="margin-top:12px">patch file</div>
-    <div class="btnrow">
-      <button class="act" id="btn-export-json">export json</button>
-      <button class="act" id="btn-import-json">import json</button>
-    </div>
-    <input type="file" id="preset-file" accept="application/json,.json" class="sr-only" aria-label="Import a preset json file">
-    <div class="hint" id="i-preset">
-      <b>export json</b> writes the whole patch to a file — plate, drive, grains, colours,
-      rotation, both lfos and their targets, and the midi cc map. <b>import json</b> reads one
-      back and applies it wholesale, so a patch travels between machines and browsers.<br><br>
-      the built-in preset list above is unchanged: it only names a handful of fields and leaves
-      everything else where you left it. an imported json replaces the lot.
-    </div>
-  </div>
-
-  <div class="section fold" id="sec-lfo">
+  <div class="section collapsed" id="sec-lfo">
     <h2>LFO <span class="tag" id="lfo-tag"></span><button class="infobtn" data-info="i-lfo">i</button></h2>
     <div class="foldbody">
       <div id="lfo-list"></div>
@@ -743,7 +784,7 @@
     </div>
   </div>
 
-  <div class="section fold collapsed" id="sec-midi">
+  <div class="section collapsed" id="sec-midi">
     <h2>MIDI <span class="tag" id="midi-tag"></span><button class="infobtn" data-info="i-midi">i</button></h2>
     <div class="foldbody">
       <div class="midi-head">
@@ -784,7 +825,7 @@
     </div>
   </div>
 
-  <div class="section">
+  <div class="section" id="sec-export">
     <h2>Export <span class="tag" id="export-tag"></span><button class="infobtn" data-info="i-export">i</button></h2>
     <div class="sublabel">frame aspect</div>
     <select aria-label="Plate aspect ratio" id="aspect">
@@ -819,13 +860,14 @@
     </div>
   </div>
 
-  <div class="section">
+  <div class="section" id="sec-keys">
     <h2>Keys <span class="tag"></span><button class="infobtn" data-info="i-keys">i</button></h2>
     <div class="hint open" id="i-keys">
       <b>space</b> pause · <b>r</b> scatter grains · <b>g</b> randomize<br>
       <b>d</b> grains · <b>f</b> field mode · <b>s</b> png · <b>v</b> record · <b>h</b> panel<br><br>
       <b>drag</b> the plate to move the driver · <b>shift-click</b> to pin a damping finger<br>
       <b>scroll</b> to sweep the frequency · <b>double-click</b> any slider to reset it<br><br>
+      <b>click</b> a section title to fold it away — the panel remembers what you closed<br><br>
       <b>click</b> a parameter row to select it, then <b>↑ / ↓</b> to step it — hold
       <b>shift</b> for ten notches at a time. <b>↑ / ↓</b> on a dropdown jumps
       straight to the next entry.
@@ -1771,7 +1813,13 @@ const MAXGRAINS = 80000;
 const gpos = new Float32Array(MAXGRAINS * 2);
 let grainCount = 0;
 let nCoarse = 0;                   // [0, nCoarse) crawl to nodes, the rest to antinodes
-let feedAcc = 0, feedPtr = 0;      // rolling recycle cursor
+const feedAcc = [0, 0], feedPtr = [0, 0];   // one rolling recycle cursor per population
+/* one cursor walking the whole array carries its block of freshly scattered
+   grains through the sand range and then through the powder range, so in
+   "both at once" each figure goes soft in turn — the two views pulse against
+   each other once per turnover, at the feed rate. a cursor per population keeps
+   both at the same point in their cycle, so neither breathes. */
+let evenFeed = true;
 
 // one array, two populations — the split is an index, so nothing per-grain is stored
 function splitGrains() {
@@ -1816,22 +1864,29 @@ function stepGrains(dt) {
 
   // continuous feed: recycle grains back onto the plate oldest-first, so the
   // population keeps turning over instead of settling once and freezing
+  splitGrains();
   if (P.feed > 0) {
-    feedAcc += P.feed * grainCount * dt;
-    let recycle = Math.floor(feedAcc);
-    if (recycle > 0) {
-      feedAcc -= recycle;
-      recycle = Math.min(recycle, grainCount);
-      for (let j = 0; j < recycle; j++) {
-        placeGrain(feedPtr % grainCount);
-        feedPtr++;
-      }
+    if (evenFeed) {
+      recycleRange(0, nCoarse, 0, dt);
+      recycleRange(nCoarse, grainCount, 1, dt);
+    } else {
+      recycleRange(0, grainCount, 0, dt);
     }
   }
-
-  splitGrains();
   if (nCoarse > 0) moveGrains(0, nCoarse, -1, dt);
   if (grainCount > nCoarse) moveGrains(nCoarse, grainCount, 1, dt);
+}
+
+// recycle one population's share of grains, oldest first within that population
+function recycleRange(lo, hi, slot, dt) {
+  const n = hi - lo;
+  if (n <= 0) { feedAcc[slot] = 0; return; }
+  feedAcc[slot] += P.feed * n * dt;
+  const whole = Math.floor(feedAcc[slot]);
+  if (whole <= 0) return;
+  feedAcc[slot] -= whole;
+  const recycle = Math.min(whole, n);
+  for (let j = 0; j < recycle; j++) placeGrain(lo + (feedPtr[slot]++ % n));
 }
 
 // dir −1 crawls down the amplitude gradient (sand → nodes), +1 up it (powder → antinodes)
@@ -1950,10 +2005,14 @@ function resize() {
   computeFrame();
 }
 
+// keep in step with --panel-w in the stylesheet
+const PANEL_W = parseFloat(getComputedStyle(document.documentElement)
+                  .getPropertyValue('--panel-w')) || 322;
+
 function computeFrame() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   // while capturing, the canvas *is* the frame — no panel inset, no letterbox
-  const panelW = (capturing || document.body.classList.contains('panel-hidden')) ? 0 : 292 * dpr;
+  const panelW = (capturing || document.body.classList.contains('panel-hidden')) ? 0 : PANEL_W * dpr;
   // a window narrower than the panel (or a backgrounded tab reporting zero)
   // would otherwise give a negative frame — and a negative gl.scissor
   const availW = Math.max(1, W - panelW), availH = Math.max(1, H);
@@ -2612,7 +2671,7 @@ const specCv = document.getElementById('spectrum');
 const sctx = specCv.getContext('2d');
 function drawSpectrum() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const w = specCv.clientWidth || 256, h = 64;
+  const w = specCv.clientWidth || 256, h = 76;
   specCv.width = w * dpr; specCv.height = h * dpr;
   sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   sctx.clearRect(0, 0, w, h);
@@ -2620,7 +2679,7 @@ function drawSpectrum() {
   const fmax = Math.max(160, P.freq * (spec.length ? spec[spec.length - 1].n : 1) * 1.1);
 
   // mode frequencies as faint ticks — you can see partials hunting for resonances
-  sctx.strokeStyle = 'rgba(255,255,255,0.10)';
+  sctx.strokeStyle = 'rgba(255,255,255,0.22)';
   sctx.beginPath();
   const seen = new Set();
   for (const m of catalogue) {
@@ -2633,7 +2692,7 @@ function drawSpectrum() {
   }
   sctx.stroke();
 
-  sctx.strokeStyle = 'rgba(255,255,255,0.16)';
+  sctx.strokeStyle = 'rgba(255,255,255,0.3)';
   sctx.beginPath(); sctx.moveTo(0, h - 10.5); sctx.lineTo(w, h - 10.5); sctx.stroke();
 
   const amax = Math.max(...spec.map(p => p.a), 1e-6);
@@ -2641,12 +2700,12 @@ function drawSpectrum() {
     if (p.f > fmax) continue;
     const x = p.f / fmax * w, hh = (p.a / amax) * (h - 16);
     sctx.strokeStyle = '#e8c26a';
-    sctx.lineWidth = 1.5;
+    sctx.lineWidth = 2;
     sctx.beginPath(); sctx.moveTo(x, h - 11); sctx.lineTo(x, h - 11 - hh); sctx.stroke();
   }
-  sctx.fillStyle = 'rgba(124,132,148,0.9)';
-  sctx.font = '8px ui-monospace, monospace';
-  sctx.fillText('partials vs. modal frequencies →', 2, 9);
+  sctx.fillStyle = '#9aa2b4';
+  sctx.font = '10px ui-monospace, monospace';
+  sctx.fillText('partials vs. modal frequencies →', 2, 11);
 }
 
 function drawStatus() {
@@ -2790,6 +2849,11 @@ function setMedium(m) {
   if (wrap) wrap.style.display = m === 'both' ? '' : 'none';
   updateTags();
 }
+function setEvenFeed(v) {
+  evenFeed = !!v;
+  feedAcc[0] = feedAcc[1] = 0;
+  document.getElementById('btn-evenfeed').classList.toggle('active', evenFeed);
+}
 function setField(n) {
   fieldMode = n;
   document.querySelectorAll('[data-field]').forEach(x => x.classList.toggle('active', +x.dataset.field === n));
@@ -2806,6 +2870,7 @@ document.querySelectorAll('[data-edge]').forEach(b => b.addEventListener('click'
 }));
 document.querySelectorAll('[data-disp]').forEach(b => b.addEventListener('click', () => setDisp(b.dataset.disp)));
 document.querySelectorAll('[data-med]').forEach(b => b.addEventListener('click', () => setMedium(b.dataset.med)));
+document.getElementById('btn-evenfeed').addEventListener('click', () => setEvenFeed(!evenFeed));
 document.querySelectorAll('[data-field]').forEach(b => b.addEventListener('click', () => setField(parseInt(b.dataset.field, 10))));
 document.getElementById('material').addEventListener('change', e => setMaterial(e.target.value));
 
@@ -2852,9 +2917,49 @@ document.querySelectorAll('.infobtn').forEach(b => b.addEventListener('click', e
   const open = el.classList.toggle('open');
   b.classList.toggle('open', open);
 }));
-document.querySelectorAll('.section.fold > h2').forEach(h => h.addEventListener('click', () => {
-  h.parentElement.classList.toggle('collapsed');
-}));
+/* every section folds from its own title bar. the markup's own `collapsed`
+   classes are the defaults — lfo, midi and about start closed — and whatever the
+   user folds after that is remembered. */
+const FOLD_KEY = 'chladni.folds';
+function saveFolds() {
+  try {
+    const out = {};
+    document.querySelectorAll('#panel > .section[id]').forEach(sec => {
+      out[sec.id] = sec.classList.contains('collapsed');
+    });
+    localStorage.setItem(FOLD_KEY, JSON.stringify(out));
+  } catch (e) {}
+}
+function loadFolds() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(FOLD_KEY) || 'null');
+    if (!saved || typeof saved !== 'object') return;
+    document.querySelectorAll('#panel > .section[id]').forEach(sec => {
+      if (typeof saved[sec.id] === 'boolean') sec.classList.toggle('collapsed', saved[sec.id]);
+    });
+  } catch (e) {}
+}
+function setFold(sec, collapsed) {
+  sec.classList.toggle('collapsed', collapsed);
+  const h = sec.querySelector(':scope > h2');
+  if (h) h.setAttribute('aria-expanded', String(!collapsed));
+  saveFolds();
+}
+loadFolds();
+document.querySelectorAll('#panel > .section > h2').forEach(h => {
+  const sec = h.parentElement;
+  h.setAttribute('role', 'button');
+  h.setAttribute('tabindex', '0');
+  h.setAttribute('aria-expanded', String(!sec.classList.contains('collapsed')));
+  h.addEventListener('click', () => setFold(sec, !sec.classList.contains('collapsed')));
+  h.addEventListener('keydown', e => {
+    if (e.target !== h) return;         // the (i) button owns its own keys
+    if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') return;
+    e.preventDefault();                 // space would otherwise pause the run
+    e.stopPropagation();
+    setFold(sec, !sec.classList.contains('collapsed'));
+  });
+});
 
 /* ---- presets ---- */
 const presets = [
@@ -2932,7 +3037,7 @@ function snapshotPatch() {
     saved: new Date().toISOString(),
     plate:  { geom, edge, disp, material },
     drive:  { waveform, snap: snapOn },
-    grains: { medium },
+    grains: { medium, evenFeed },
     render: { field: fieldMode, palette, grains: showGrains, driver: showDrive, canvas: colCanvas },
     audio:  { realHz },
     frame:  { aspect: document.getElementById('aspect').value,
@@ -2998,6 +3103,7 @@ function applyPatch(s) {
   if (typeof dr.snap === 'boolean') { snapOn = dr.snap; btnSnap.classList.toggle('active', snapOn); }
   if (rn.field === 0 || rn.field === 1 || rn.field === 2) setField(rn.field);
   if (MED_KEYS.includes(gr.medium)) setMedium(gr.medium);
+  if (typeof gr.evenFeed === 'boolean') setEvenFeed(gr.evenFeed);
 
   fingers = Array.isArray(s.fingers)
     ? s.fingers.filter(f => f && Number.isFinite(f.x) && Number.isFinite(f.y)).slice(0, 4)
