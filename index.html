@@ -133,6 +133,7 @@
   /* a whole section that is switched off elsewhere — the header and its info
      panel stay live so you can still read why */
   .section.inactive > select,
+  .section.inactive > .midi-wrap,
   .section.inactive > .sublabel,
   .section.inactive > #units-out { opacity: 0.32; pointer-events: none; }
   .section.inactive h2 .tag { color: var(--ink-dim); }
@@ -225,6 +226,32 @@
   .map-del:hover { color: var(--danger); }
   .map-ind { width: 5px; height: 5px; border-radius: 50%; background: var(--line-strong); flex: none; }
   .map-ind.active { background: var(--accent); }
+
+  /* a midi-learn button beside every mappable control */
+  .midi-btn {
+    flex: none; min-width: 20px; min-height: 0; height: 16px; padding: 0 3px;
+    font-family: var(--mono); font-size: 9px; line-height: 14px; letter-spacing: 0.02em; text-align: center;
+    color: var(--ink-dim); background: transparent; border: 1px solid var(--line-strong);
+    border-radius: 2px; cursor: pointer; font-variant-numeric: tabular-nums;
+  }
+  .midi-btn:hover { color: var(--ink); border-color: var(--ink-dim); }
+  .midi-btn.bound { color: var(--accent); border-color: var(--accent-dim); }
+  .midi-btn.learning {
+    color: var(--bg); background: var(--accent); border-color: var(--accent);
+    animation: blink 0.8s steps(2, start) infinite;
+  }
+  .midi-btn.hit { color: var(--bg); background: var(--accent); }
+  .param .row1 .midi-btn { align-self: center; }
+  .param .row1 .midi-btn ~ .val { min-width: 7ch; text-align: right; }
+  .param .row1 > .midi-btn:first-of-type { margin-left: auto; }
+  .param .row1 .pin-btn + .midi-btn { margin-left: 0; margin-right: 6px; }
+  .lfo-head .midi-btn { margin-left: 6px; }
+  /* a toggle, select or button group with its midi button docked on the right */
+  .midi-wrap { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .midi-wrap > :first-child { flex: 1; min-width: 0; margin-bottom: 0; }
+  .toolrow > .midi-wrap, .btnrow > .midi-wrap { flex: 1; }
+  .toolrow > .midi-wrap > button.tool, .btnrow > .midi-wrap > button.act { width: 100%; }
+  .section > .midi-wrap { margin-bottom: 10px; }
   #map-add {
     width: 100%; font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em;
     text-transform: uppercase; color: var(--ink-dim); background: transparent;
@@ -923,6 +950,9 @@
         <div class="hint" id="i-midi">
           add a mapping, pick a target, hit <b>learn</b> and move a knob. the monitor above shows every
           incoming message, so you can confirm the controller is reaching the page at all.<br><br>
+          quicker: every mappable control in the panel has an <b>M</b> button beside it. click it
+          and move a knob — it then shows the cc it is bound to. click again to re-learn,
+          right-click (or shift-click) to unmap.<br><br>
           the <b>cc</b> box takes a number by hand if you would rather read it off the
           controller's manual than coax it into sending the right knob — type it, or leave it
           empty to unbind.<br><br>
@@ -3306,7 +3336,7 @@ function applyPatch(s) {
         .filter(a => a && (paramById[a.key] || LFO_ENUMS.includes(a.key)))
         .map(a => ({ key: a.key, amt: Number.isFinite(a.amt) ? Math.min(1, Math.max(-1, a.amt)) : 1 }));
     });
-    saveLfo(); buildLfoUI();
+    saveLfo(); buildLfoUI(); addMidiButtons();
   }
   // v1 patches wrote midi as a bare array of mappings; v2 wraps it with the
   // note switch. take either.
@@ -3543,6 +3573,9 @@ function onMidiMessage(e, inputId) {
     }
     const ind = document.getElementById('map-ind-' + m.id);
     if (ind) { ind.classList.add('active'); clearTimeout(ind._t); ind._t = setTimeout(() => ind.classList.remove('active'), 120); }
+    document.querySelectorAll('.midi-btn[data-midi="' + m.key + '"]').forEach(b => {
+      b.classList.add('hit'); clearTimeout(b._t); b._t = setTimeout(() => b.classList.remove('hit'), 120);
+    });
   });
 }
 
@@ -3595,6 +3628,7 @@ function addMapping(key) {
   saveMidi(); renderMapList();
 }
 function renderMapList() {
+  paintMidiButtons();
   const list = document.getElementById('map-list');
   list.innerHTML = '';
   if (!midiMappings.length) {
@@ -3656,7 +3690,7 @@ function renderMapList() {
       if (mapLearnId === m.id) { mapLearnId = null; learn.className = 'map-cc-btn'; learn.textContent = 'learn'; row.classList.remove('learning'); }
       m.target = undefined; m.smooth = undefined;
       learn.classList.toggle('bound', m.cc !== null);
-      saveMidi();
+      saveMidi(); paintMidiButtons();
     });
     ccIn.addEventListener('blur', () => { ccIn.value = m.cc === null ? '' : m.cc; });
     row.appendChild(ccIn);
@@ -3692,6 +3726,98 @@ function renderMapList() {
     row.appendChild(del);
 
     list.appendChild(row);
+  });
+}
+
+/* ---- a learn button beside every mappable control ----
+   click an unbound one to arm learn on a fresh mapping; the next cc binds it.
+   click it again while it blinks to give up. click a bound one to re-learn,
+   right-click (or shift-click) to unmap it. the list below stays the full
+   editor — ranges, several ccs on one target, and so on. */
+// the panel control each non-slider target sits beside. a selector matching a
+// group of buttons docks the button on the whole group.
+const MIDI_BTN_AT = {
+  _geom: '#geom', _material: '#material', _edge: '[data-edge]', _disp: '[data-disp]',
+  _field: '#fieldmode', _med3: '[data-med]',
+  _grains: '#btn-grains', _driver: '#btn-driver', _pause: '#btn-pause', _snap: '#btn-snap',
+  _realhz: '#btn-realhz', _notes: '#btn-midinotes', _scatter: '#btn-reseed', _fingers: '#btn-clearfingers',
+};
+function learnMapFor(key) { return midiMappings.find(m => m.id === mapLearnId && m.key === key); }
+// an armed mapping made by one of these buttons that never got a cc is dropped
+// as soon as learn moves elsewhere, so abandoned clicks don't litter the list
+function dropStaleLearn() {
+  const m = midiMappings.find(x => x.id === mapLearnId);
+  if (m && m._auto && m.cc === null) midiMappings = midiMappings.filter(x => x !== m);
+  mapLearnId = null;
+}
+function midiButtonClick(key, unmap) {
+  const mine = midiMappings.filter(m => m.key === key);
+  if (unmap) {
+    if (mine.some(m => m.id === mapLearnId)) mapLearnId = null;
+    midiMappings = midiMappings.filter(m => m.key !== key);
+  } else if (learnMapFor(key)) {
+    dropStaleLearn();                                  // second click cancels
+  } else {
+    dropStaleLearn();
+    let m = mine[0];
+    if (!m) {
+      const t = MAP_TARGETS[key];
+      m = { id: _mapSeq++, key, cc: null, lo: t.min ?? 0, hi: t.max ?? 1,
+            target: undefined, smooth: undefined, _auto: true };
+      midiMappings.push(m);
+    }
+    mapLearnId = m.id;
+  }
+  saveMidi(); renderMapList();
+}
+function midiButton(key) {
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'midi-btn'; b.dataset.midi = key;
+  b.addEventListener('pointerdown', e => e.stopPropagation());   // rows take it as a select
+  b.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); midiButtonClick(key, e.shiftKey); });
+  b.addEventListener('contextmenu', e => { e.preventDefault(); midiButtonClick(key, true); });
+  paintMidiButton(b);
+  return b;
+}
+function paintMidiButton(b) {
+  const key = b.dataset.midi, t = MAP_TARGETS[key];
+  const ccs = midiMappings.filter(m => m.key === key && m.cc !== null && m.cc !== undefined).map(m => m.cc);
+  const learning = !!learnMapFor(key);
+  b.classList.toggle('learning', learning);
+  b.classList.toggle('bound', !learning && ccs.length > 0);
+  b.textContent = learning ? '…' : ccs.length ? String(ccs[0]) + (ccs.length > 1 ? '+' : '') : 'M';
+  const what = t ? t.label : key;
+  b.title = learning ? 'move a knob to bind ' + what + ' — click to cancel'
+    : ccs.length ? what + ' ← cc ' + ccs.join(', ') + '. click to re-learn, right-click to unmap'
+    : 'midi learn ' + what;
+  b.setAttribute('aria-label', b.title);
+}
+function paintMidiButtons() { document.querySelectorAll('.midi-btn').forEach(paintMidiButton); }
+// idempotent — runs at start-up and again whenever the lfo panel is rebuilt
+function addMidiButtons() {
+  document.querySelectorAll('#panel .param[id^="param-"]').forEach(row => {
+    const k = row.id.slice(6), r1 = row.querySelector('.row1');
+    if (!MAP_TARGETS[k] || !r1 || r1.querySelector('.midi-btn')) return;
+    r1.insertBefore(midiButton(k), r1.querySelector('.val'));
+  });
+  lfos.forEach(l => {
+    ['rate', 'depth', 'phase'].forEach(p => {
+      const val = document.getElementById('val-lfo' + l.i + '-' + p);
+      const r1 = val && val.parentNode;
+      if (r1 && !r1.querySelector('.midi-btn')) r1.insertBefore(midiButton('_lfo' + l.i + p), val);
+    });
+    const run = l._runBtn;
+    if (run && !run.parentNode.querySelector('.midi-btn')) run.after(midiButton('_lfo' + l.i + 'run'));
+  });
+  Object.keys(MIDI_BTN_AT).forEach(k => {
+    let el = document.querySelector(MIDI_BTN_AT[k]);
+    if (el && el.matches('[data-edge], [data-disp], [data-med]')) el = el.closest('.toolrow');
+    if (!el || !MAP_TARGETS[k] || document.querySelector('.midi-btn[data-midi="' + k + '"]')) return;
+    const wrap = document.createElement('div');
+    wrap.className = 'midi-wrap';
+    el.replaceWith(wrap);
+    wrap.appendChild(el);
+    wrap.appendChild(midiButton(k));
   });
 }
 
@@ -3915,6 +4041,7 @@ buildParamRows(EXPORT_PARAMS, document.getElementById('params-export'));
 buildPresets();
 loadLfo();
 buildLfoUI();
+addMidiButtons();
 updateDriveEnable();
 updateEdgeButtons();
 updateRealUnitsEnable();
@@ -4254,7 +4381,7 @@ requestAnimationFrame(frame);
       const k = row.id.slice(6);
       const r1 = row.querySelector('.row1');
       if (!MAP_TARGETS[k] || !r1 || r1.querySelector('.pin-btn')) return;
-      r1.insertBefore(pinButton(k), r1.querySelector('.val'));
+      r1.insertBefore(pinButton(k), r1.querySelector('.midi-btn') || r1.querySelector('.val'));
     });
   }
   // patches carry their pins; the built-in presets leave them alone
