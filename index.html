@@ -206,6 +206,22 @@
   .map-del:hover { color: var(--danger); }
   .map-ind { width: 5px; height: 5px; border-radius: 50%; background: var(--line-strong); flex: none; }
   .map-ind.active { background: var(--accent); }
+  /* per-parameter learn button, sits between the label and the value */
+  .param .row1 .midi-learn {
+    margin: 0 auto 0 6px; align-self: center;
+    font-family: var(--mono); font-size: 8px; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--ink-dim); background: transparent; border: 1px solid var(--line-strong);
+    border-radius: 2px; padding: 0 4px; line-height: 12px; cursor: pointer; white-space: nowrap;
+    opacity: 0.35; transition: opacity 0.12s;
+  }
+  .param:hover .row1 .midi-learn, .param .row1 .midi-learn:focus-visible,
+  .param .row1 .midi-learn.bound, .param .row1 .midi-learn.learning { opacity: 1; }
+  .param .row1 .midi-learn:hover { color: var(--ink); border-color: var(--ink-dim); }
+  .param .row1 .midi-learn.bound { color: var(--accent); border-color: var(--accent-dim); }
+  .param .row1 .midi-learn.learning {
+    color: var(--bg); background: var(--accent); border-color: var(--accent);
+    animation: blink 0.8s steps(2, start) infinite;
+  }
   #map-add {
     width: 100%; font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em;
     text-transform: uppercase; color: var(--ink-dim); background: transparent;
@@ -764,7 +780,9 @@
         <button class="act" id="btn-midiclear">clear all</button>
       </div>
       <div class="hint" id="i-midi">
-        add a mapping, pick a target, hit <b>learn</b> and move a knob. the monitor above shows every
+        quickest route: hit the small <b>midi</b> button beside any slider and move a knob — it
+        shows the bound cc afterwards; click again to re-learn, alt- or right-click to unmap.<br><br>
+        or add a mapping here, pick a target, hit <b>learn</b> and move a knob. the monitor above shows every
         incoming message, so you can confirm the controller is reaching the page at all.<br><br>
         the <b>cc</b> box takes a number by hand if you would rather read it off the
         controller's manual than coax it into sending the right knob — type it, or leave it
@@ -2160,6 +2178,7 @@ function buildParamRows(list, container) {
       '<div class="row1"><label for="in-' + d.id + '">' + d.label + '</label><span class="val" id="val-' + d.id + '"></span></div>' +
       '<div class="row2">' +
       '<input type="range" id="in-' + d.id + '" aria-describedby="val-' + d.id + '" min="' + d.min + '" max="' + d.max + '" step="' + d.step + '" value="' + P[d.id] + '"></div>';
+    wrap.querySelector('.row1 label').after(midiLearnButton(d.id));
     container.appendChild(wrap);
     const input = wrap.querySelector('input');
     input.title = 'double-click to reset to ' + (d.fmt ? d.fmt(d.value) : d.value);
@@ -2380,6 +2399,7 @@ function lfoSlider(l, key, label, min, max, step, fmt) {
     '<span class="val" id="val-' + idp + '"></span></div>' +
     '<div class="row2"><input type="range" id="in-' + idp + '" min="' + min + '" max="' + max +
     '" step="' + step + '" value="' + l[key] + '"></div>';
+  wrap.querySelector('.row1 label').after(midiLearnButton('_lfo' + l.i + key));
   const inp = wrap.querySelector('input'), val = wrap.querySelector('.val');
   const show = () => { val.textContent = fmt(l[key]); inp.setAttribute('aria-valuetext', fmt(l[key])); };
   const set = v => { l[key] = v; inp.value = v; show(); saveLfo(); };
@@ -3368,7 +3388,7 @@ function renderMapList() {
       if (mapLearnId === m.id) { mapLearnId = null; learn.className = 'map-cc-btn'; learn.textContent = 'learn'; row.classList.remove('learning'); }
       m.target = undefined; m.smooth = undefined;
       learn.classList.toggle('bound', m.cc !== null);
-      saveMidi();
+      saveMidi(); syncLearnButtons();
     });
     ccIn.addEventListener('blur', () => { ccIn.value = m.cc === null ? '' : m.cc; });
     row.appendChild(ccIn);
@@ -3405,6 +3425,66 @@ function renderMapList() {
 
     list.appendChild(row);
   });
+  syncLearnButtons();
+}
+
+/* ---- per-parameter learn buttons ----
+   a shortcut into the same mapping list: click arms learn on this parameter's
+   mapping (creating one if there is none), click again cancels, alt- or
+   right-click drops every mapping on it. */
+function midiLearnButton(key) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'midi-learn';
+  b.dataset.mapkey = key;
+  b.addEventListener('pointerdown', e => e.stopPropagation());
+  b.addEventListener('click', e => {
+    e.preventDefault();
+    if (e.altKey) { unmapKey(key); return; }
+    learnKey(key);
+  });
+  b.addEventListener('contextmenu', e => { e.preventDefault(); unmapKey(key); });
+  updateLearnButton(b);
+  return b;
+}
+function learnKey(key) {
+  const armed = midiMappings.find(m => m.id === mapLearnId);
+  if (armed && armed.key === key) {
+    // cancelling a fresh, never-bound mapping leaves nothing behind
+    if (armed.cc === null) midiMappings = midiMappings.filter(m => m !== armed);
+    mapLearnId = null;
+  } else {
+    if (armed && armed.cc === null && armed._fromParam) midiMappings = midiMappings.filter(m => m !== armed);
+    let m = midiMappings.find(x => x.key === key);
+    if (!m) {
+      addMapping(key);
+      m = midiMappings[midiMappings.length - 1];
+      m._fromParam = true;
+    }
+    mapLearnId = m.id;
+  }
+  saveMidi(); renderMapList();
+}
+function unmapKey(key) {
+  const before = midiMappings.length;
+  midiMappings = midiMappings.filter(m => m.key !== key);
+  if (!midiMappings.some(m => m.id === mapLearnId)) mapLearnId = null;
+  if (midiMappings.length !== before) { saveMidi(); renderMapList(); }
+}
+function updateLearnButton(b) {
+  const key = b.dataset.mapkey;
+  const maps = midiMappings.filter(m => m.key === key);
+  const learning = maps.some(m => m.id === mapLearnId);
+  const ccs = maps.filter(m => m.cc !== null && m.cc !== undefined).map(m => m.cc);
+  b.classList.toggle('learning', learning);
+  b.classList.toggle('bound', !learning && ccs.length > 0);
+  b.textContent = learning ? 'learn…' : (ccs.length ? 'cc ' + ccs.join(',') : 'midi');
+  b.title = learning ? 'move a knob to bind it — click to cancel'
+          : ccs.length ? 'mapped to cc ' + ccs.join(', ') + ' — click to re-learn, alt- or right-click to unmap'
+          : 'click, then move a knob to map it';
+}
+function syncLearnButtons() {
+  document.querySelectorAll('.midi-learn').forEach(updateLearnButton);
 }
 
 document.getElementById('midi-input-select').addEventListener('change', e => {
