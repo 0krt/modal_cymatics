@@ -674,7 +674,12 @@
         Bessel modes, with the clamped case needing the modified-Bessel companion. the <b>ring</b> is
         supported on both rims, and the <b>equilateral triangle</b> uses the exact Lamé modes built by
         reflecting six plane waves — both are only defined for the supported case here.<br><br>
-        the sheet's real dimensions — size, thickness and material — live under <b>Real units</b>.
+        <b>on-screen size</b> shrinks the sheet, and it is a real size change, not a zoom: the
+        drive frequency fixes the wavelength, so a smaller plate fits fewer of them. every mode climbs
+        as <code>1/s²</code> (<code>1/s</code> for a membrane), and at a fixed frequency the figure
+        coarsens — half the size shows the pattern the full plate made at a quarter the frequency.<br><br>
+        the sheet's real dimensions — size, thickness and material — live under <b>Real units</b>;
+        the size there is the full-frame plate, so the drive's hertz stay put as you shrink it.
       </div>
     </div>
 
@@ -1487,6 +1492,11 @@ const P = {};
 const PLATE_PARAMS = [
   { id: 'aspect', label: 'aspect ratio', min: 0.25, max: 4,    step: 0.005, value: 1,    dp: 3 },
   { id: 'inner',  label: 'inner radius', min: 0.08, max: 0.8,  step: 0.005, value: 0.35, dp: 3 },
+  // on-screen size as a fraction of the full frame. it is a real size change, not
+  // a zoom: the drive frequency fixes the wavelength, so a smaller plate fits fewer
+  // of them and every mode climbs (as 1/s² for a plate, 1/s for a membrane)
+  { id: 'pscale', label: 'on-screen size', min: 0.3,  max: 1,    step: 0.005, value: 1,    dp: 3,
+    fmt: v => Math.round(v * 100) + '%' },
 ];
 // physical calibration — turns the abstract modal scale into hertz
 const UNIT_PARAMS = [
@@ -1718,10 +1728,24 @@ function buildCatalogue() {
   }
 
   catalogue = list;
-  for (const m of catalogue) { m.hre = null; m.him = null; }
-  // the ladder of distinct resonances, for snap-to-resonance and the wheel
-  modeFreqs = [...new Set(list.map(m => +m.F.toFixed(4)))].sort((a, b) => a - b);
+  for (const m of catalogue) { m.hre = null; m.him = null; m.F0 = m.F; }
+  rescaleModes();
   uploadProfiles();
+}
+
+/* the catalogue is solved once for the full-frame plate (F0); the on-screen size
+   only moves the eigenfrequencies, so resizing never re-runs the root-finding.
+   shrinking to s scales every wavenumber by 1/s, hence F by 1/s² on a plate and
+   1/s on a membrane — at a fixed drive the plate walks down the mode ladder. */
+function sizeFactor() {
+  const s = P.pscale;
+  return disp === 'plate' ? 1 / (s * s) : 1 / s;
+}
+function rescaleModes() {
+  const k = sizeFactor();
+  for (const m of catalogue) m.F = m.F0 * k;
+  // the ladder of distinct resonances, for snap-to-resonance and the wheel
+  modeFreqs = [...new Set(catalogue.map(m => +m.F.toFixed(4)))].sort((a, b) => a - b);
 }
 
 let modeFreqs = [];
@@ -2223,7 +2247,7 @@ function computeFrame() {
   // the rectangle stretches to its aspect ratio; the triangle's box is 1 : √3/2
   // so it renders equilateral; everything else is square-boxed
   const ar = geom === 'rect' ? P.aspect : (geom === 'tri' ? 1 / TRI_H : 1);
-  const fit = Math.min(fw, fh) * 0.88;
+  const fit = Math.min(fw, fh) * 0.88 * P.pscale;
   let pw = fit, ph = fit;
   if (ar >= 1) ph = fit / ar; else pw = fit * ar;
   // a turning box sweeps out its own diagonal; shrink once for the worst case so
@@ -2449,7 +2473,7 @@ const RESOLVE = new Set(['freq', 'q', 'partials', 'tilt', 'focus', 'focusq', 'dx
 const RESHAPE = new Set(['aspect', 'inner']);   // changing these rebuilds the mode catalogue
 const SPECUI  = new Set(['freq', 'q', 'partials', 'focus', 'focusq']);
 const AUDIOUI = new Set(['freq', 'basehz', 'vol']);
-const UNITSUI = new Set(['psize', 'pthick']);
+const UNITSUI = new Set(['psize', 'pthick', 'pscale']);
 let solveQueued = false;
 
 function clampP(d, v) {
@@ -2481,6 +2505,7 @@ function applyMod(id, quiet) {
   if (!quiet) refreshParamUI(id);
   if (RESHAPE.has(id)) { reshapeQueued = true; queueSolve(); }
   else if (RESOLVE.has(id)) queueSolve();
+  if (id === 'pscale') { rescaleModes(); computeFrame(); queueSolve(); }
   if (SPECUI.has(id)) drawSpectrum();
   if (AUDIOUI.has(id)) updateAudio();
   if (UNITSUI.has(id)) updateUnits();
@@ -2805,7 +2830,8 @@ function updateUnits() {
   const el = document.getElementById('units-out');
   if (el) {
     const hz = hzPerUnit();
-    el.innerHTML = P.psize.toFixed(1) + ' cm ' + MATERIALS[material].label + ', ' +
+    el.innerHTML = P.psize.toFixed(1) + ' cm ' + MATERIALS[material].label +
+      (P.pscale < 1 ? ' (' + (P.psize * P.pscale).toFixed(1) + ' cm on screen)' : '') + ', ' +
       P.pthick.toFixed(2) + ' mm → <b>' + hz.toFixed(1) + ' hz</b> per unit · drive at <b>' +
       fmtHz(P.freq * hz) + '</b>';
   }
@@ -3212,6 +3238,8 @@ function applyPreset(p) {
   // shape params must land before the catalogue is built from them
   if (p.aspect !== undefined) setParam('aspect', p.aspect); else if (geom === 'rect') setParam('aspect', 1);
   if (p.inner !== undefined) setParam('inner', p.inner);
+  // preset frequencies are tuned against the full-size plate
+  setParam('pscale', p.pscale !== undefined ? p.pscale : 1);
   updateEdgeButtons();
   updateDriveEnable();
   buildCatalogue();
@@ -3280,6 +3308,8 @@ function applyPatch(s) {
     const d = paramById[k];
     if (d && Number.isFinite(src[k])) PB[k] = clampP(d, src[k]);
   }
+  // patches from before the on-screen size control were all full-size
+  if (!Number.isFinite(src.pscale)) PB.pscale = 1;
 
   /* 2. discrete plate and drive state */
   if (GEOM_STEPS.includes(pl.geom)) geom = pl.geom;
